@@ -1,0 +1,87 @@
+openapi: "3.1.0"
+
+info:
+  title: LEIA CUSTOMER API
+  description: LEIA Customer API is a RESTful API that allows you to interact with an AI product owner.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:5000
+    description: Local server
+
+components:
+  securitySchemes:
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+
+paths:
+  /userProject/{userProjectId}:
+    post:
+      operationId: sendMessageToAIProductOwner
+      summary: Send a message to the AI product owner
+      parameters:
+        - name: userProjectId
+          in: path
+          required: true
+          description: userProject unique ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                owner:
+                  type: string
+                uml:
+                  type: string
+                extraInfo:
+                  type: string
+      responses:
+        "200":
+          description: Successfull response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Invalid request"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Invalid API key"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Internal server error"
+      security:
+        - apiKeyAuth: []
