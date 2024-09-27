@@ -1,5 +1,5 @@
 import('dotenv').then(dotenv => dotenv.config());
-const userProjectMap = {};
+const studentExerciseMap = {};
 
 let openai;
 (async () => {
@@ -7,7 +7,7 @@ let openai;
     openai = new OpenAI.default(process.env.OPENAI_API_KEY);
 })();
 
-const prompt = "The following Mermaid UML diagram describes a software system.\n\n<UML>\n\n" +
+const prompt = "The following Mermaid UML diagram describes a software system.\n\n<DIAGRAM>\n\n" +
     "You are the product owner of this software system. " +
     "The following information about the product owner is available:\n\n <OWNER>\n\n" +
     "Your task is to play the role of the product owner. " +
@@ -34,23 +34,23 @@ async function newThread() {
 }
 
 module.exports.sendMessageToAIProductOwner = async function sendMessageToAIProductOwner(req, res) {
-    const uml = req.body.uml;
+    const diagram = req.body.diagram;
     const owner = req.body.owner;
     const extraInfo = req.body.extraInfo;
-    const userProjectId = req.params.userProjectId;
+    const studentExerciseId = req.params.studentExerciseId;
     const message = req.body.message;
 
-    let customPrompt = prompt.replace("<UML>", uml).replace("<OWNER>", owner);
+    let customPrompt = prompt.replace("<DIAGRAM>", diagram).replace("<OWNER>", owner);
 
     if (extraInfo) {
         customPrompt += "\n\nExtra information about the system:\n\n" + extraInfo;
     }
 
-    if (!userProjectMap[userProjectId]) {
+    if (!studentExerciseMap[studentExerciseId]) {
         try {
             const newAssistantId = await newAssistant(customPrompt);
             const newThreadId = await newThread();
-            userProjectMap[userProjectId] = { assistantId: newAssistantId, threadId: newThreadId };
+            studentExerciseMap[studentExerciseId] = { assistantId: newAssistantId, threadId: newThreadId };
         } catch (error) {
             console.error(error);
             res.status(500).send({ error: "Error creating assistant or thread" });
@@ -58,8 +58,8 @@ module.exports.sendMessageToAIProductOwner = async function sendMessageToAIProdu
         }
     }
 
-    const assistantId = userProjectMap[userProjectId].assistantId;
-    const threadId = userProjectMap[userProjectId].threadId;
+    const assistantId = studentExerciseMap[studentExerciseId].assistantId;
+    const threadId = studentExerciseMap[studentExerciseId].threadId;
 
     let newMessage;
     try {

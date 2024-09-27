@@ -17,15 +17,15 @@ components:
       name: x-api-key
 
 paths:
-  /userProject/{userProjectId}:
+  /studentExercise/{studentExerciseId}:
     post:
       operationId: sendMessageToAIProductOwner
       summary: Send a message to the AI product owner
       parameters:
-        - name: userProjectId
+        - name: studentExerciseId
           in: path
           required: true
-          description: userProject unique ID
+          description: studentExercise unique ID
           schema:
             type: string
       requestBody:
