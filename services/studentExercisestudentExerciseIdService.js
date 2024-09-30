@@ -7,15 +7,6 @@ let openai;
     openai = new OpenAI.default(process.env.OPENAI_API_KEY);
 })();
 
-const prompt = "The following Mermaid UML diagram describes a software system.\n\n<DIAGRAM>\n\n" +
-    "You are the product owner of this software system. " +
-    "The following information about the product owner is available:\n\n <OWNER>\n\n" +
-    "Your task is to play the role of the product owner. " +
-    "You will receive messages from a software developer who is working on this software system. " +
-    "You must respond to each message with a message keeping in mind your role, and lead the developer to a similar solution to the Mermaid UML. " +
-    "This is a formal conversation through a chat app. " +
-    "You must follow the developer pace and have an slightly passive attitude. "
-
 async function newAssistant(instructions) {
 
     const assistant = await openai.beta.assistants.create({
@@ -33,22 +24,14 @@ async function newThread() {
     return thread.id;
 }
 
-module.exports.sendMessageToAIProductOwner = async function sendMessageToAIProductOwner(req, res) {
-    const diagram = req.body.diagram;
-    const owner = req.body.owner;
-    const extraInfo = req.body.extraInfo;
+module.exports.sendMessageToAI = async function sendMessageToAI(req, res) {
+    const prompt = req.body.prompt;
     const studentExerciseId = req.params.studentExerciseId;
     const message = req.body.message;
 
-    let customPrompt = prompt.replace("<DIAGRAM>", diagram).replace("<OWNER>", owner);
-
-    if (extraInfo) {
-        customPrompt += "\n\nExtra information about the system:\n\n" + extraInfo;
-    }
-
     if (!studentExerciseMap[studentExerciseId]) {
         try {
-            const newAssistantId = await newAssistant(customPrompt);
+            const newAssistantId = await newAssistant(prompt);
             const newThreadId = await newThread();
             studentExerciseMap[studentExerciseId] = { assistantId: newAssistantId, threadId: newThreadId };
         } catch (error) {

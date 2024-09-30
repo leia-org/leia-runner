@@ -2,7 +2,7 @@ openapi: "3.1.0"
 
 info:
   title: LEIA CUSTOMER API
-  description: LEIA Customer API is a RESTful API that allows you to interact with an AI product owner.
+  description: LEIA Customer API is a RESTful API that allows you to interact with an AI given a prompt.
   version: 1.0.0
 
 servers:
@@ -19,8 +19,8 @@ components:
 paths:
   /studentExercise/{studentExerciseId}:
     post:
-      operationId: sendMessageToAIProductOwner
-      summary: Send a message to the AI product owner
+      operationId: sendMessageToAI
+      summary: Send a message to the AI
       parameters:
         - name: studentExerciseId
           in: path
@@ -37,11 +37,7 @@ paths:
               properties:
                 message:
                   type: string
-                owner:
-                  type: string
-                uml:
-                  type: string
-                extraInfo:
+                prompt:
                   type: string
       responses:
         "200":
