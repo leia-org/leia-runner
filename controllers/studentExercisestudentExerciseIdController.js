@@ -1,7 +1,7 @@
 const service = require('../services/studentExercisestudentExerciseIdService.js');
 module.exports.sendMessageToAI = function sendMessageToAI(req, res) {
     res.setHeader('Content-Type', 'application/json');
-    if (!res.locals.oas.security.apiKeyAuth) {
+    if (!res.locals.oas.security.apiKeyAuth.authorized) {
         res.status(403).send({ error: 'Unauthorized' });
     } else if (
         !req.body.message || typeof req.body.message !== 'string' ||
