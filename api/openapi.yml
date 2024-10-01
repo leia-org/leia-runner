@@ -6,6 +6,8 @@ info:
   version: 1.0.0
 
 servers:
+  - url: https://customer-leia-c532b43c578c.herokuapp.com
+    description: Production server
   - url: http://localhost:5000
     description: Local server
 
