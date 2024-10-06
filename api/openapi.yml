@@ -83,3 +83,69 @@ paths:
                     example: "Internal server error"
       security:
         - apiKeyAuth: []
+  /evaluate:
+    post:
+      operationId: evaluate
+      summary: Evaluate the student solution
+      parameters:
+        - name: "type"
+          in: "query"
+          required: true
+          description: "Type of the exercise"
+          schema:
+            type: "string"
+            enum:
+              - "uml"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                studentSolution:
+                  type: string
+                exerciseSolution:
+                  type: string
+      responses:
+        "200":
+          description: Successfull response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  evaluation:
+                    type: string
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Invalid request"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Invalid API key"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Internal server error"
+      security:
+        - apiKeyAuth: []
