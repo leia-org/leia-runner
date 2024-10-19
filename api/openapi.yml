@@ -19,15 +19,15 @@ components:
       name: x-api-key
 
 paths:
-  /studentExercise/{studentExerciseId}:
+  /session/{sessionId}:
     post:
       operationId: sendMessageToAI
       summary: Send a message to the AI
       parameters:
-        - name: studentExerciseId
+        - name: sessionId
           in: path
           required: true
-          description: studentExercise unique ID
+          description: session unique ID
           schema:
             type: string
       requestBody:
