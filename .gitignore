@@ -64,3 +64,6 @@ typings/
 
 # Dist folder
 dist/
+
+# DS Store
+.DS_Store
