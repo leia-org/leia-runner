@@ -95,7 +95,7 @@ paths:
           schema:
             type: "string"
             enum:
-              - "uml"
+              - "requirements-gathering"
       requestBody:
         required: true
         content:

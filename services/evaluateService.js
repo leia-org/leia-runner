@@ -43,12 +43,12 @@ module.exports.evaluate = async function evaluate(req, res) {
   const type = req.query.type;
 
   let evaluation;
-  if (type === "uml") {
+  if (type === "requirements-gathering") {
     try {
       evaluation = await getEvaluationUML(studentSolution, exerciseSolution);
     } catch (error) {
       console.error(error);
-      res.status(500).send({ error: "Error evaluating the UML diagram" });
+      res.status(500).send({ error: "Error evaluating the diagram" });
       return;
     }
   } else {
