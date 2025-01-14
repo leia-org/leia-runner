@@ -6,10 +6,10 @@ info:
   version: 1.0.0
 
 servers:
+  - url: /
+    description: Local server
   - url: https://customer-leia-c532b43c578c.herokuapp.com
     description: Production server
-  - url: http://localhost:5000
-    description: Local server
 
 components:
   securitySchemes:
@@ -147,5 +147,90 @@ paths:
                   error:
                     type: string
                     example: "Internal server error"
+  /metrics:
+    post:
+      operationId: metrics
+      summary: Get the metrics of the student solution
+      parameters:
+        - name: "type"
+          in: "query"
+          required: true
+          description: "Type of the exercise"
+          schema:
+            type: "string"
+            enum:
+              - "requirements-gathering"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                studentSolution:
+                  type: string
+                exerciseSolution:
+                  type: string
+      responses:
+        "200":
+          description: Successfull response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  classes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        studentClassName:
+                          type: string
+                        similarTo:
+                          type: string
+                        similarity:
+                          type: number
+                        attributes:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              studentAttributeName:
+                                type: string
+                              similarTo:
+                                type: string
+                              similarity:
+                                type: number
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Invalid request"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Invalid API key"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Internal server error"
+
       security:
         - apiKeyAuth: []
