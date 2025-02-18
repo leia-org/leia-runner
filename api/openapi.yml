@@ -147,6 +147,8 @@ paths:
                   error:
                     type: string
                     example: "Internal server error"
+      security:
+        - apiKeyAuth: []
   /metrics:
     post:
       operationId: metrics
