@@ -2,8 +2,8 @@ openapi: "3.1.0"
 
 info:
   title: LEIA CUSTOMER API
-  description: LEIA Customer API is a RESTful API that allows you to interact with an AI given a prompt.
-  version: 1.0.0
+  description: API for interacting with LEIA instances.
+  version: "1.0.0"
 
 servers:
   - url: /
@@ -13,21 +13,104 @@ servers:
 
 components:
   securitySchemes:
-    apiKeyAuth:
-      type: apiKey
-      in: header
-      name: x-api-key
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
 
 paths:
-  /session/{sessionId}:
+  /api/v1/leias:
     post:
-      operationId: sendMessageToAI
-      summary: Send a message to the AI
+      operationId: createLeia
+      summary: Creates a new LEIA instance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sessionId:
+                  type: string
+                  description: Unique session ID
+                leia:
+                  type: object
+                  description: LEIA configuration object
+                runnerConfiguration:
+                  type: object
+                  properties:
+                    provider:
+                      type: string
+                      description: Name of the model provider to use
+      responses:
+        "201":
+          description: LEIA created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessionId:
+                    type: string
+                  modelName:
+                    type: string
+                  created:
+                    type: boolean
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "409":
+          description: Session already exists
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  sessionId:
+                    type: string
+                  modelName:
+                    type: string
+                  created:
+                    type: boolean
+                    default: false
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+      security:
+        - bearerAuth: []
+  
+  /api/v1/leias/{sessionId}/messages:
+    post:
+      operationId: sendLeiaMessage
+      summary: Sends a message to a LEIA instance
       parameters:
         - name: sessionId
           in: path
           required: true
-          description: session unique ID
+          description: Unique session ID
           schema:
             type: string
       requestBody:
@@ -39,11 +122,10 @@ paths:
               properties:
                 message:
                   type: string
-                prompt:
-                  type: string
+                  description: Message to send to LEIA
       responses:
         "200":
-          description: Successfull response
+          description: Successful response
           content:
             application/json:
               schema:
@@ -60,7 +142,6 @@ paths:
                 properties:
                   error:
                     type: string
-                    example: "Invalid request"
         "401":
           description: Unauthorized
           content:
@@ -70,7 +151,15 @@ paths:
                 properties:
                   error:
                     type: string
-                    example: "Invalid API key"
+        "404":
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
         "500":
           description: Internal server error
           content:
@@ -80,139 +169,28 @@ paths:
                 properties:
                   error:
                     type: string
-                    example: "Internal server error"
       security:
-        - apiKeyAuth: []
-  /evaluate:
-    post:
-      operationId: evaluate
-      summary: Evaluate the student solution
-      parameters:
-        - name: "type"
-          in: "query"
-          required: true
-          description: "Type of the exercise"
-          schema:
-            type: "string"
-            enum:
-              - "requirements-gathering"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                studentSolution:
-                  type: string
-                exerciseSolution:
-                  type: string
+        - bearerAuth: []
+        
+  /api/v1/models:
+    get:
+      operationId: listModels
+      summary: Lists available models
       responses:
         "200":
-          description: Successfull response
+          description: List of available models
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  evaluation:
-                    type: string
-        "400":
-          description: Bad request
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "Invalid request"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "Invalid API key"
-        "500":
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "Internal server error"
-      security:
-        - apiKeyAuth: []
-  /metrics:
-    post:
-      operationId: metrics
-      summary: Get the metrics of the student solution
-      parameters:
-        - name: "type"
-          in: "query"
-          required: true
-          description: "Type of the exercise"
-          schema:
-            type: "string"
-            enum:
-              - "requirements-gathering"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                studentSolution:
-                  type: string
-                exerciseSolution:
-                  type: string
-      responses:
-        "200":
-          description: Successfull response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  classes:
+                  models:
                     type: array
                     items:
-                      type: object
-                      properties:
-                        studentClassName:
-                          type: string
-                        similarTo:
-                          type: string
-                        similarity:
-                          type: number
-                        attributes:
-                          type: array
-                          items:
-                            type: object
-                            properties:
-                              studentAttributeName:
-                                type: string
-                              similarTo:
-                                type: string
-                              similarity:
-                                type: number
-        "400":
-          description: Bad request
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
+                      type: string
+                  default:
                     type: string
-                    example: "Invalid request"
+                    description: Configured default model
         "401":
           description: Unauthorized
           content:
@@ -222,7 +200,6 @@ paths:
                 properties:
                   error:
                     type: string
-                    example: "Invalid API key"
         "500":
           description: Internal server error
           content:
@@ -232,7 +209,5 @@ paths:
                 properties:
                   error:
                     type: string
-                    example: "Internal server error"
-
       security:
-        - apiKeyAuth: []
+        - bearerAuth: []
