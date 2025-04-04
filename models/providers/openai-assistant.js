@@ -1,11 +1,14 @@
 require('dotenv').config();
 const OpenAI = require('openai');
+const BaseModel = require('./baseModel');
 
 /**
  * Proveedor de modelo basado en OpenAI Assistants API
  */
-class OpenAIAssistantProvider {
+class OpenAIAssistantProvider extends BaseModel {
   constructor() {
+    super();
+    this.name = 'openai-assistant';
     this.openai = new OpenAI(process.env.OPENAI_API_KEY);
     this.assistants = {};
     this.threads = {};
@@ -111,6 +114,65 @@ class OpenAIAssistantProvider {
       }
     } catch (error) {
       console.error('Error enviando mensaje a OpenAI Assistant:', error);
+      throw error;
+    }
+  }
+
+  async evaluateSolution(options){
+    const {leia, result} = options;
+
+    const { solution, solutionFormat } = leia;
+
+    try {
+      // Create a prompt to evaluate the solution
+      const evaluationPrompt = `
+        Evaluate the following solution for a problem:
+
+        Expected solution:
+        ${solution}
+
+        Provided solution:
+        ${result}
+
+        The Format to compare is:
+        ${solutionFormat}
+
+        Evaluate the provided solution by comparing it with the expected solution.
+        Assign a score between 0 and 10, where:
+        - 10 means the solution is perfect
+        - 0 means the solution is completely incorrect
+        Provide a detailed evaluation in Markdown format.
+
+        Respond ONLY with a JSON object in the following format:
+        {
+          "score": [score between 0 and 10],
+          "evaluation": "[detailed evaluation in Markdown format]"
+        }`;
+
+      // Make a request to evaluate the solution
+      const response = await this.openai.chat.completions.create({
+        model: process.env.OPENAI_EVALUATION_MODEL || "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: "You are an expert evaluator. Your task is to evaluate solutions to problems and provide detailed feedback."
+          },
+          {
+            role: "user",
+            content: evaluationPrompt
+          }
+        ],
+        response_format: { type: "json_object" }
+      });
+
+      // Extract the content from the response
+      const messageContent = response.choices[0].message.content;
+      
+      // Parse the JSON response
+      const evaluationResult = JSON.parse(messageContent);
+      return evaluationResult;
+    } catch (error){
+      console.error("Error enviando a OpenAI: "+ error)
       throw error;
     }
   }

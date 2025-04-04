@@ -57,7 +57,7 @@ class ModelManager {
   async loadModels() {
     try {
       const files = await fs.readdir(this.modelDir);
-      const modelFiles = files.filter(file => file.endsWith('.js'));
+      const modelFiles = files.filter(file => file.endsWith('.js')).filter(file => file !== 'baseModel.js');
       
       for (const file of modelFiles) {
         const modelName = path.basename(file, '.js');
@@ -103,6 +103,12 @@ class ModelManager {
     if (!modelModule.createSession || typeof modelModule.createSession !== 'function') {
       result.success = false;
       result.errors.push('El modelo no implementa el método createSession');
+    }
+
+
+    if (!modelModule.evaluateSolution || typeof modelModule.evaluateSolution !== 'function') {
+      console.warn(`El modelo '${modelName}' no implementa el método evaluateSolution. Algunas funcionalidades de evaluación no estarán disponibles.`);
+
     }
 
     // Si la estructura es correcta, realizar test básico

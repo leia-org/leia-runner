@@ -36,7 +36,7 @@ paths:
                 leia:
                   type: object
                   description: LEIA configuration object
-                runnerConfiguration:
+                runnerConfig:
                   type: object
                   properties:
                     provider:
@@ -193,6 +193,76 @@ paths:
                     description: Configured default model
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+      security:
+        - bearerAuth: []
+
+  /api/v1/evaluation:
+    post:
+      operationId: evaluateSolution
+      summary: Evaluates a student's solution against the expected solution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sessionId:
+                  type: string
+                  description: Session ID associated with the LEIA instance
+                result:
+                  type: string
+                  description: Solution provided by the student
+      responses:
+        "200":
+          description: Evaluation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  score:
+                    type: number
+                    description: Score from 0 to 100
+                  evaluation:
+                    type: string
+                    description: Detailed evaluation in markdown format
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "404":
+          description: Session or LEIA metadata not found
           content:
             application/json:
               schema:

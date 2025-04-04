@@ -87,9 +87,17 @@ class SessionService {
    */
   async storeLeiaMeta(sessionId, metadata) {
     try {
+      // Convertir el objeto metadata a un formato que Redis pueda almacenar
+      const redisMetadata = {};
+      
+      // Asegurarse de que todos los valores sean strings
+      for (const [key, value] of Object.entries(metadata)) {
+        redisMetadata[key] = value !== null && value !== undefined ? String(value) : '';
+      }
+      
       await redisClient.hSet(
         `${this.leiaMetaPrefix}${sessionId}`,
-        metadata
+        redisMetadata
       );
     } catch (error) {
       console.error(`Error storing LEIA metadata for session ${sessionId}:`, error);
