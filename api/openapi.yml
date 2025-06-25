@@ -303,12 +303,12 @@ paths:
         
         **Filters:**
         - `sessionId` - Specific session ID
-        - `modelName` - Specific model name
+        - `provider` - Specific model name
         - `metadata` - JSON object with metadata filters
         
-        **Note:** Cannot use both `timeFrame` and `specificDate` simultaneously.
+        **Note:** Cannot use both `f` and `date` simultaneously.
       parameters:
-        - name: timeFrame
+        - name: f
           in: query
           required: false
           description: Time frame for cache purge (1h, 2d, 1w, 3m, all)
@@ -316,7 +316,7 @@ paths:
             type: string
             default: "all"
             example: "2d"
-        - name: specificDate
+        - name: date
           in: query
           required: false
           description: Specific date to purge before (YYYY-MM-DD, YYYY-MM-DDTHH:mm:ss, or timestamp)
@@ -330,7 +330,7 @@ paths:
           schema:
             type: string
             example: "session-123"
-        - name: modelName
+        - name: provider
           in: query
           required: false
           description: Specific model name to purge
@@ -365,18 +365,18 @@ paths:
                   timeFrame:
                     type: string
                     nullable: true
-                    description: Time frame used (null if specificDate was used)
+                    description: Time frame used (null if date was used)
                   specificDate:
                     type: string
                     nullable: true
-                    description: Specific date used (null if timeFrame was used)
+                    description: Specific date used (null if f was used)
                   appliedFilters:
                     type: object
                     properties:
                       sessionId:
                         type: string
                         nullable: true
-                      modelName:
+                      provider:
                         type: string
                         nullable: true
                       metadata:
@@ -417,9 +417,9 @@ paths:
                   help:
                     type: object
                     properties:
-                      timeFrame:
+                      f:
                         type: string
-                      specificDate:
+                      date:
                         type: string
         "401":
           description: Unauthorized

@@ -216,27 +216,27 @@ class CacheService {
   /**
    * Purga caché basado en criterios específicos
    * @param {Object} options - Opciones de purga
-   * @param {string} options.timeFrame - Marco temporal ('1h', '2d', '1w', '3m', 'all')
-   * @param {string} options.specificDate - Fecha específica (YYYY-MM-DD o timestamp) - purga antes de esta fecha
+   * @param {string} options.f - Marco temporal ('1h', '2d', '1w', '3m', 'all')
+   * @param {string} options.date - Fecha específica (YYYY-MM-DD o timestamp) - purga antes de esta fecha
    * @param {string} options.sessionId - ID de sesión específica (opcional)
-   * @param {string} options.modelName - Nombre del modelo específico (opcional)
+   * @param {string} options.provider - Nombre del modelo específico (opcional)
    * @param {Object} options.metadata - Metadatos específicos para filtrar (opcional)
    * @returns {Promise<Object>} - Resultado de la purga
    */
   async purgeCache(options = {}) {
     try {
-      const { timeFrame = 'all', specificDate, sessionId, modelName, metadata } = options;
+      const { f = 'all', date, sessionId, provider, metadata } = options;
       
       let cutoffTime = null;
 
       // Parsear marco temporal o fecha específica
-      if (specificDate) {
-        cutoffTime = this.parseSpecificDate(specificDate);
+      if (date) {
+        cutoffTime = this.parseSpecificDate(date);
         console.log(`Usando fecha específica: ${new Date(cutoffTime).toISOString()}`);
-      } else if (timeFrame !== 'all') {
-        const timeFrameMs = this.parseTimeFrame(timeFrame);
+      } else if (f !== 'all') {
+        const timeFrameMs = this.parseTimeFrame(f);
         cutoffTime = timeFrameMs ? Date.now() - timeFrameMs : null;
-        console.log(`Usando marco temporal: ${timeFrame} (cutoff: ${cutoffTime ? new Date(cutoffTime).toISOString() : 'none'})`);
+        console.log(`Usando marco temporal: ${f} (cutoff: ${cutoffTime ? new Date(cutoffTime).toISOString() : 'none'})`);
       }
 
       // Obtener todas las claves relevantes
@@ -258,7 +258,7 @@ class CacheService {
       // Aplicar filtros secuencialmente
       let keysToDelete = allKeys;
 
-      // Filtrar por tiempo si se especifica (timeFrame o specificDate)
+      // Filtrar por tiempo si se especifica (f o date)
       if (cutoffTime !== null) {
         keysToDelete = await this.filterKeysByTime(keysToDelete, cutoffTime);
         console.log(`Después del filtro de tiempo: ${keysToDelete.length} claves`);
@@ -271,8 +271,8 @@ class CacheService {
       }
 
       // Filtrar por modelo si se especifica
-      if (modelName) {
-        keysToDelete = await this.filterKeysByModel(keysToDelete, modelName);
+      if (provider) {
+        keysToDelete = await this.filterKeysByModel(keysToDelete, provider);
         console.log(`Después del filtro de modelo: ${keysToDelete.length} claves`);
       }
 
@@ -298,11 +298,11 @@ class CacheService {
         success: true,
         deletedKeys: deletedCount,
         totalKeysFound: allKeys.length,
-        timeFrame: specificDate ? null : timeFrame,
-        specificDate: specificDate || null,
+        timeFrame: date ? null : f,
+        specificDate: date || null,
         appliedFilters: {
           sessionId: sessionId || null,
-          modelName: modelName || null,
+          provider: provider || null,
           metadata: metadata || null
         }
       };

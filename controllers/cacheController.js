@@ -8,28 +8,28 @@ const cacheService = require('../services/cacheService');
 module.exports.purgeCache = async function purgeCache(req, res) {
   try {
     const { 
-      timeFrame = 'all', 
-      specificDate,
+      f = 'all', 
+      date,
       sessionId, 
-      modelName, 
+      provider, 
       metadata 
     } = req.query;
 
-    // Validar que no se especifiquen timeFrame y specificDate al mismo tiempo
-    if (timeFrame !== 'all' && specificDate) {
+    // Validar que no se especifiquen f y date al mismo tiempo
+    if (f !== 'all' && date) {
       return res.status(400).send({ 
-        error: 'No puede especificar timeFrame y specificDate al mismo tiempo. Use uno u otro.',
+        error: 'No puede especificar f y date al mismo tiempo. Use uno u otro.',
         help: {
-          timeFrame: 'Para purgar basado en tiempo relativo (ej: 1h, 2d, 1w)',
-          specificDate: 'Para purgar antes de una fecha específica (ej: 2024-01-15 o timestamp)'
+          f: 'Para purgar basado en tiempo relativo (ej: 1h, 2d, 1w)',
+          date: 'Para purgar antes de una fecha específica (ej: 2024-01-15 o timestamp)'
         }
       });
     }
 
     // Validar formato de marco temporal si se proporciona
-    if (timeFrame !== 'all') {
+    if (f !== 'all') {
       try {
-        cacheService.parseTimeFrame(timeFrame);
+        cacheService.parseTimeFrame(f);
       } catch (error) {
         return res.status(400).send({ 
           error: error.message,
@@ -45,9 +45,9 @@ module.exports.purgeCache = async function purgeCache(req, res) {
     }
 
     // Validar formato de fecha específica si se proporciona
-    if (specificDate) {
+    if (date) {
       try {
-        cacheService.parseSpecificDate(specificDate);
+        cacheService.parseSpecificDate(date);
       } catch (error) {
         return res.status(400).send({ 
           error: error.message,
@@ -80,10 +80,10 @@ module.exports.purgeCache = async function purgeCache(req, res) {
 
     // Ejecutar la purga
     const result = await cacheService.purgeCache({
-      timeFrame,
-      specificDate,
+      f,
+      date,
       sessionId,
-      modelName,
+      provider,
       metadata: parsedMetadata
     });
 
