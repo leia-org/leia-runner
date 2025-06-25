@@ -281,3 +281,224 @@ paths:
                     type: string
       security:
         - bearerAuth: []
+
+  /api/v1/cache/purge:
+    delete:
+      operationId: purgeCache
+      summary: Purges cache based on specified criteria
+      description: |
+        Purges cache entries based on time frame and optional filters.
+        
+        **Time Frames:**
+        - `1h`, `2h`, etc. - Hours
+        - `1d`, `2d`, etc. - Days
+        - `1w`, `2w`, etc. - Weeks  
+        - `1m`, `2m`, etc. - Months (aprox 30 days)
+        - `all` - All cache entries (default)
+        
+        **Specific Dates:**
+        - `YYYY-MM-DD` - ISO date format (e.g., 2024-01-15)
+        - `YYYY-MM-DDTHH:mm:ss` - ISO datetime format (e.g., 2024-01-15T10:30:00)
+        - `timestamp` - Unix timestamp in seconds or milliseconds
+        
+        **Filters:**
+        - `sessionId` - Specific session ID
+        - `modelName` - Specific model name
+        - `metadata` - JSON object with metadata filters
+        
+        **Note:** Cannot use both `timeFrame` and `specificDate` simultaneously.
+      parameters:
+        - name: timeFrame
+          in: query
+          required: false
+          description: Time frame for cache purge (1h, 2d, 1w, 3m, all)
+          schema:
+            type: string
+            default: "all"
+            example: "2d"
+        - name: specificDate
+          in: query
+          required: false
+          description: Specific date to purge before (YYYY-MM-DD, YYYY-MM-DDTHH:mm:ss, or timestamp)
+          schema:
+            type: string
+            example: "2024-01-15"
+        - name: sessionId
+          in: query
+          required: false
+          description: Specific session ID to purge
+          schema:
+            type: string
+            example: "session-123"
+        - name: modelName
+          in: query
+          required: false
+          description: Specific model name to purge
+          schema:
+            type: string
+            example: "openai"
+        - name: metadata
+          in: query
+          required: false
+          description: JSON object with metadata filters
+          schema:
+            type: string
+            example: '{"leiaId": "123", "personaId": "456"}'
+      responses:
+        "200":
+          description: Cache purged successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  success:
+                    type: boolean
+                  deletedKeys:
+                    type: number
+                    description: Number of keys deleted
+                  totalKeysFound:
+                    type: number
+                    description: Total keys found before filtering
+                  timeFrame:
+                    type: string
+                    nullable: true
+                    description: Time frame used (null if specificDate was used)
+                  specificDate:
+                    type: string
+                    nullable: true
+                    description: Specific date used (null if timeFrame was used)
+                  appliedFilters:
+                    type: object
+                    properties:
+                      sessionId:
+                        type: string
+                        nullable: true
+                      modelName:
+                        type: string
+                        nullable: true
+                      metadata:
+                        type: object
+                        nullable: true
+        "400":
+          description: Bad request - Invalid parameters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  validFormats:
+                    type: object
+                    properties:
+                      hours:
+                        type: string
+                      days:
+                        type: string
+                      weeks:
+                        type: string
+                      months:
+                        type: string
+                      all:
+                        type: string
+                      iso:
+                        type: string
+                      isoWithTime:
+                        type: string
+                      timestamp:
+                        type: string
+                  examples:
+                    type: array
+                    items:
+                      type: string
+                  help:
+                    type: object
+                    properties:
+                      timeFrame:
+                        type: string
+                      specificDate:
+                        type: string
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  details:
+                    type: string
+      security:
+        - bearerAuth: []
+
+  /api/v1/cache/stats:
+    get:
+      operationId: getCacheStats
+      summary: Gets cache statistics
+      description: Returns current cache statistics including total keys and breakdown by type
+      responses:
+        "200":
+          description: Cache statistics retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  stats:
+                    type: object
+                    properties:
+                      total:
+                        type: number
+                        description: Total number of cache keys
+                      breakdown:
+                        type: object
+                        properties:
+                          sessions:
+                            type: number
+                            description: Number of session keys
+                          metadata:
+                            type: number
+                            description: Number of metadata keys
+                          models:
+                            type: number
+                            description: Number of model keys
+                          validatedModels:
+                            type: number
+                            description: Number of validated model keys
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  details:
+                    type: string
+      security:
+        - bearerAuth: []
