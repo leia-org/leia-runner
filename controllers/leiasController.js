@@ -37,7 +37,7 @@ module.exports.createLeia = async function createLeia(req, res) {
       behaviourId: leia.spec?.behaviourId,
       problemId: leia.spec?.problemId,
       solution: leia.spec?.problem?.spec?.solution || '',
-      solutionFormat: leia.spec?.problem?.solutionFormat || 'text'
+      solutionFormat: leia.spec?.problem?.spec?.solutionFormat || 'text'
     });
 
     res.status(201).send({

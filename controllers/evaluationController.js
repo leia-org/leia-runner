@@ -21,28 +21,12 @@ module.exports.evaluateSolution = async function evaluateSolution(req, res) {
       return res.status(404).send({ error: `LEIA metadata for session ID: ${sessionId} not found` });
     }
 
-    // Reconstruir el objeto LEIA a partir de los metadatos
-    const leia = {
-      id: leiaMeta.leiaId,
-      spec: {
-        personaId: leiaMeta.personaId,
-        behaviourId: leiaMeta.behaviourId,
-        problemId: leiaMeta.problemId,
-        problem: {
-          spec: {
-            solution: leiaMeta.solution || ''
-          },
-          solutionFormat: leiaMeta.solutionFormat || 'text'
-        }
-      }
-    };
-
     // Obtener el modelo
     const model = modelManager.getModel(sessionData.modelName);
 
     // Evaluar la solución
     const evaluationResult = await model.evaluateSolution({
-      leia,
+      leiaMeta,
       result
     });
 

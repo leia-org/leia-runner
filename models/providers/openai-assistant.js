@@ -119,9 +119,9 @@ class OpenAIAssistantProvider extends BaseModel {
   }
 
   async evaluateSolution(options){
-    const {leia, result} = options;
+    const {leiaMeta, result} = options;
 
-    const { solution, solutionFormat } = leia;
+    const { solution, solutionFormat } = leiaMeta;
 
     try {
       // Create a prompt to evaluate the solution
