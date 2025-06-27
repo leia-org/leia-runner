@@ -3,6 +3,7 @@ const router = express.Router();
 const leiasController = require('../controllers/leiasController');
 const modelsController = require('../controllers/modelsController');
 const evaluationController = require('../controllers/evaluationController');
+const cacheController = require('../controllers/cacheController');
 const { bearerAuth } = require('../utils/auth');
 
 // Aplicar middleware de autenticación a todas las rutas
@@ -18,5 +19,9 @@ router.post('/leias/:sessionId/messages', leiasController.sendLeiaMessage);
 router.get('/models', modelsController.listModels);
 
 router.post('/evaluation', bearerAuth, evaluationController.evaluateSolution);
+
+// Endpoints para gestión de caché
+router.delete('/cache/purge', cacheController.purgeCache);
+router.get('/cache/stats', cacheController.getCacheStats);
 
 module.exports = router; 
