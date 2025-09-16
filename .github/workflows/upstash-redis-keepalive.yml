@@ -1,0 +1,14 @@
+name: "Keep Alive Upstash Redis Database"
+on:
+  schedule:
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: PING VIA REST API
+        run: |
+          curl -sS -H "Authorization: Bearer ${{ secrets.REDIS_UPSTASH_REST_TOKEN }}" "${{ secrets.REDIS_UPSTASH_REST_URL }}/ping"
+    
