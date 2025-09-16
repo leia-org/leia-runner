@@ -9,6 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: PING VIA REST API
+        env:
+          REDIS_TOKEN: ${{ secrets.REDIS_UPSTASH_REST_TOKEN }}
+          REDIS_URL: ${{ secrets.REDIS_UPSTASH_REST_URL }}
         run: |
-          curl -sS -H "Authorization: Bearer ${{ secrets.REDIS_UPSTASH_REST_TOKEN }}" "${{ secrets.REDIS_UPSTASH_REST_URL }}/ping"
-    
+          curl -sS -H "Authorization: Bearer $REDIS_TOKEN" "$REDIS_URL/ping"
