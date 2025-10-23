@@ -25,17 +25,17 @@ const WIZARD_TOOLS = [
     type: 'function',
     function: {
       name: 'search_existing_personas',
-      description: 'Search for existing personas in the Designer catalog that match criteria. Only returns published/public components.',
+      description: 'Search for existing personas in the Designer catalog that match criteria. Only returns published/public components. Searches across all persona fields including name, personality, description, topic, emotion range, etc.',
       parameters: {
         type: 'object',
         properties: {
           topic: {
             type: 'string',
-            description: 'Subject area or topic the persona should have expertise in'
+            description: 'Search term to match across all persona fields (name, personality, description, topic, emotion range, etc.)'
           },
           search: {
             type: 'string',
-            description: 'General search term to match against name or personality'
+            description: 'Alternative search parameter - searches across all persona fields'
           },
           limit: {
             type: 'number',
@@ -50,27 +50,27 @@ const WIZARD_TOOLS = [
     type: 'function',
     function: {
       name: 'search_existing_problems',
-      description: 'Search for existing problems in the Designer catalog. Only returns published/public components.',
+      description: 'Search for existing problems in the Designer catalog. Only returns published/public components. Searches across all problem fields including name, description, background, details, solution, and format.',
       parameters: {
         type: 'object',
         properties: {
           topic: {
             type: 'string',
-            description: 'Subject area or topic of the problem'
+            description: 'Search term to match across all problem fields (name, description, background, details, solution, format, etc.)'
           },
           difficulty: {
             type: 'string',
             enum: ['beginner', 'intermediate', 'advanced'],
-            description: 'Difficulty level of the problem'
+            description: 'Filter by specific difficulty level (optional, can be combined with search)'
           },
           format: {
             type: 'string',
             enum: ['text', 'mermaid'],
-            description: 'Expected solution format'
+            description: 'Filter by specific solution format (optional, can be combined with search)'
           },
           search: {
             type: 'string',
-            description: 'General search term'
+            description: 'Alternative search parameter - searches across all problem fields'
           },
           limit: {
             type: 'number',
@@ -85,22 +85,22 @@ const WIZARD_TOOLS = [
     type: 'function',
     function: {
       name: 'search_existing_behaviours',
-      description: 'Search for existing behaviours in the Designer catalog. Only returns published/public components.',
+      description: 'Search for existing behaviours in the Designer catalog. Only returns published/public components. Searches across all behaviour fields including name, description, role, process, instructions, and approach.',
       parameters: {
         type: 'object',
         properties: {
           role: {
             type: 'string',
-            description: 'Role of the behaviour (e.g., product_owner, requirements_engineer)'
+            description: 'Filter by specific role (e.g., product_owner, requirements_engineer) - used as exact match filter when search is not provided'
           },
           process: {
             type: 'string',
             enum: ['requirements-elicitation', 'game'],
-            description: 'Teaching process type'
+            description: 'Filter by specific teaching process type - used as exact match filter when search is not provided'
           },
           search: {
             type: 'string',
-            description: 'General search term'
+            description: 'Search term to match across all behaviour fields (name, description, role, process, instructions, approach, etc.)'
           },
           limit: {
             type: 'number',
