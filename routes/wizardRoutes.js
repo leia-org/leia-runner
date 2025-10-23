@@ -5,7 +5,7 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { bearerAuth } = require('../utils/auth');
-const { getRedisClient } = require('../config/redis');
+const { redisClient } = require('../config/redis');
 const { createWizardConversation, processWizardStep, continueWizardConversation } = require('../services/wizardAgent');
 const logger = require('../utils/logger');
 
@@ -32,11 +32,11 @@ router.post('/sessions', bearerAuth, async (req, res) => {
     const conversation = await createWizardConversation(userPrompt);
 
     // Store in Redis
-    const redis = getRedisClient();
-    await redis.setex(
+    const redis = redisClient;
+    await redis.set(
       `wizard:${sessionId}`,
-      3600, // 1 hour expiry
-      JSON.stringify(conversation)
+      JSON.stringify(conversation),
+      { EX: 3600 } // 1 hour expiry
     );
 
     res.json({
@@ -65,7 +65,7 @@ router.get('/sessions/:sessionId/stream', bearerAuth, async (req, res) => {
     res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
 
     // Load conversation from Redis
-    const redis = getRedisClient();
+    const redis = redisClient;
     const conversationData = await redis.get(`wizard:${sessionId}`);
 
     if (!conversationData) {
@@ -79,8 +79,21 @@ router.get('/sessions/:sessionId/stream', bearerAuth, async (req, res) => {
     // Send initial connection event
     res.write(`data: ${JSON.stringify({ type: 'connected', sessionId })}\n\n`);
 
-    // Process wizard step and stream updates
-    const generator = processWizardStep(conversation);
+    // Check if there are unprocessed messages
+    // The last message should be from 'user' if we need to process
+    const lastMessage = conversation.messages[conversation.messages.length - 1];
+    const needsProcessing = lastMessage && lastMessage.role === 'user';
+
+    if (!needsProcessing) {
+      // No new messages to process, just close the stream
+      res.write(`data: ${JSON.stringify({ type: 'message', content: 'No new messages to process' })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'stream_end' })}\n\n`);
+      res.end();
+      return;
+    }
+
+    // Process wizard step and stream updates (this will process the last user message)
+    const generator = processWizardStep(conversation, null);
 
     for await (const update of generator) {
       // Send update to client
@@ -93,10 +106,10 @@ router.get('/sessions/:sessionId/stream', bearerAuth, async (req, res) => {
     }
 
     // Save updated conversation to Redis
-    await redis.setex(
+    await redis.set(
       `wizard:${sessionId}`,
-      3600,
-      JSON.stringify(conversation)
+      JSON.stringify(conversation),
+      { EX: 3600 }
     );
 
     // End stream
@@ -126,7 +139,7 @@ router.post('/sessions/:sessionId/message', bearerAuth, async (req, res) => {
     }
 
     // Load conversation from Redis
-    const redis = getRedisClient();
+    const redis = redisClient;
     const conversationData = await redis.get(`wizard:${sessionId}`);
 
     if (!conversationData) {
@@ -136,18 +149,19 @@ router.post('/sessions/:sessionId/message', bearerAuth, async (req, res) => {
     const conversation = JSON.parse(conversationData);
 
     // Add user message to conversation
+    // This will be processed when the client reconnects to the stream
     conversation.messages.push({ role: 'user', content: message });
 
-    // Save updated conversation
-    await redis.setex(
+    // Save updated conversation with the new user message
+    await redis.set(
       `wizard:${sessionId}`,
-      3600,
-      JSON.stringify(conversation)
+      JSON.stringify(conversation),
+      { EX: 3600 }
     );
 
     res.json({
       success: true,
-      message: 'Message added to conversation'
+      message: 'Message added to conversation. Reconnect to stream to get response.'
     });
 
   } catch (error) {
@@ -164,7 +178,7 @@ router.get('/sessions/:sessionId', bearerAuth, async (req, res) => {
   const { sessionId } = req.params;
 
   try {
-    const redis = getRedisClient();
+    const redis = redisClient;
     const conversationData = await redis.get(`wizard:${sessionId}`);
 
     if (!conversationData) {
@@ -195,7 +209,7 @@ router.delete('/sessions/:sessionId', bearerAuth, async (req, res) => {
   const { sessionId } = req.params;
 
   try {
-    const redis = getRedisClient();
+    const redis = redisClient;
     await redis.del(`wizard:${sessionId}`);
 
     res.json({

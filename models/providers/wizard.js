@@ -94,16 +94,15 @@ class WizardProvider extends BaseModel {
   }
 
   /**
-   * Envía un mensaje al wizard y procesa function calling
-   * Este método es compatible con la interfaz BaseModel pero retorna
-   * eventos en un formato especial para streaming
+   * Envía un mensaje al wizard y procesa function calling con streaming
+   * Este método retorna un async generator que hace yield de eventos en tiempo real
    *
    * @param {Object} options - Opciones para enviar el mensaje
    * @param {string} options.message - Mensaje a enviar (opcional para primera llamada)
    * @param {Object} options.sessionData - Datos de la sesión con historial de mensajes
-   * @returns {Promise<Object>} - Respuesta con eventos del wizard
+   * @returns {AsyncGenerator} - Generator que hace yield de eventos del wizard
    */
-  async sendMessage(options) {
+  async *sendMessageStream(options) {
     const { message, sessionData } = options;
 
     // Si hay un mensaje nuevo, agregarlo al historial
@@ -111,7 +110,6 @@ class WizardProvider extends BaseModel {
       sessionData.messages.push({ role: 'user', content: message });
     }
 
-    const events = [];
     let continueProcessing = true;
     let iterationCount = 0;
     const maxIterations = 15;
@@ -119,7 +117,9 @@ class WizardProvider extends BaseModel {
     while (continueProcessing && iterationCount < maxIterations) {
       iterationCount++;
 
-      // Hacer llamada a OpenAI con function calling
+      yield { type: 'thinking' };
+
+      // Hacer llamada a OpenAI con function calling (sin streaming por ahora para tool calls)
       const completion = await this.openai.chat.completions.create({
         model: 'gpt-4o',
         messages: sessionData.messages,
@@ -138,13 +138,13 @@ class WizardProvider extends BaseModel {
           const functionArgs = JSON.parse(toolCall.function.arguments);
 
           // Emitir evento de inicio de función
-          events.push({
+          yield {
             type: 'function_call_start',
             functionName,
             functionTitle: getFriendlyFunctionTitle(functionName),
             functionDescription: getFriendlyFunctionDescription(functionName, functionArgs),
             args: functionArgs
-          });
+          };
 
           // Ejecutar la función
           const handler = FUNCTION_HANDLERS[functionName];
@@ -156,11 +156,11 @@ class WizardProvider extends BaseModel {
           const result = await handler(functionArgs);
 
           // Emitir evento de función completada
-          events.push({
+          yield {
             type: 'function_call_complete',
             functionName,
             result
-          });
+          };
 
           // Agregar resultado al historial
           sessionData.messages.push({
@@ -176,23 +176,23 @@ class WizardProvider extends BaseModel {
         // El agente devolvió un mensaje de texto sin function calls
         const textResponse = responseMessage.content;
 
-        events.push({
+        yield {
           type: 'message',
           content: textResponse
-        });
+        };
 
         // Verificar si la LEIA está completa
         if (sessionData.persona && sessionData.problem && sessionData.behaviour) {
           sessionData.completed = true;
 
-          events.push({
+          yield {
             type: 'complete',
             leia: {
               persona: sessionData.persona,
               problem: sessionData.problem,
               behaviour: sessionData.behaviour
             }
-          });
+          };
         }
 
         continueProcessing = false;
@@ -201,17 +201,27 @@ class WizardProvider extends BaseModel {
 
     if (iterationCount >= maxIterations) {
       console.warn('Wizard reached max iterations');
-      events.push({
+      yield {
         type: 'error',
         message: 'Process took too many steps. Please try refining your request.'
-      });
+      };
+    }
+  }
+
+  /**
+   * Método heredado para compatibilidad con BaseModel
+   * Llama a sendMessageStream y recolecta todos los eventos
+   */
+  async sendMessage(options) {
+    const events = [];
+    for await (const event of this.sendMessageStream(options)) {
+      events.push(event);
     }
 
-    // Retornar todos los eventos procesados
     return {
       message: 'Wizard processing complete',
       events,
-      sessionData
+      sessionData: options.sessionData
     };
   }
 

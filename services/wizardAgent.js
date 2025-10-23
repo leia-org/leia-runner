@@ -25,26 +25,19 @@ async function createWizardConversation(userPrompt) {
 
 /**
  * Process wizard step with function calling
- * Returns an async generator that yields progress updates
+ * Returns an async generator that yields progress updates in real-time
  */
 async function* processWizardStep(conversation, userMessage = null) {
   try {
     const wizardProvider = modelManager.getModel('wizard');
 
-    // Llamar al provider con el mensaje (si hay uno nuevo)
-    const response = await wizardProvider.sendMessage({
+    // Usar sendMessageStream para obtener eventos en tiempo real
+    for await (const event of wizardProvider.sendMessageStream({
       message: userMessage,
       sessionData: conversation
-    });
-
-    // El provider retorna todos los eventos que ocurrieron
-    // Los yieldeamos uno por uno para streaming
-    for (const event of response.events) {
+    })) {
       yield event;
     }
-
-    // Actualizar la conversación con el nuevo estado
-    Object.assign(conversation, response.sessionData);
 
   } catch (error) {
     logger.error('Error in wizard step:', error);

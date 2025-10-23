@@ -21,6 +21,7 @@ app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 // Rutas
 app.use('/api/v1', require('./routes/leiasRoutes'));
+app.use('/api/v1/wizard', require('./routes/wizardRoutes'));
 
 // Inicializar Redis y sincronizar modelos
 async function initializeServer() {

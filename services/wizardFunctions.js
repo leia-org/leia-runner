@@ -16,6 +16,21 @@ const catalogAPI = axios.create({
 });
 
 /**
+ * Utility function to extract JSON from markdown code blocks
+ * Handles responses like: ```json\n{...}\n```
+ */
+function extractJSON(text) {
+  // Try to extract JSON from markdown code block
+  const jsonBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  if (jsonBlockMatch) {
+    return JSON.parse(jsonBlockMatch[1].trim());
+  }
+
+  // If no code block, try to parse directly
+  return JSON.parse(text.trim());
+}
+
+/**
  * Search for existing personas in the Designer catalog
  */
 async function searchExistingPersonas({ topic, search, limit = 5 }) {
@@ -167,7 +182,7 @@ Respond with a JSON object containing:
       sessionData
     });
 
-    const evaluation = JSON.parse(response.message);
+    const evaluation = extractJSON(response.message);
 
     return {
       success: true,
@@ -239,7 +254,7 @@ Respond ONLY with the JSON object in the exact structure shown above.`;
       sessionData
     });
 
-    const persona = JSON.parse(response.message);
+    const persona = extractJSON(response.message);
 
     return {
       success: true,
@@ -311,7 +326,7 @@ Respond ONLY with the JSON object in the exact structure shown above.`;
       sessionData
     });
 
-    const problem = JSON.parse(response.message);
+    const problem = extractJSON(response.message);
 
     return {
       success: true,
@@ -381,7 +396,7 @@ Respond ONLY with the JSON object in the exact structure shown above.`;
       sessionData
     });
 
-    const behaviour = JSON.parse(response.message);
+    const behaviour = extractJSON(response.message);
 
     return {
       success: true,
@@ -437,7 +452,7 @@ Respond with a JSON object:
       sessionData
     });
 
-    const validation = JSON.parse(response.message);
+    const validation = extractJSON(response.message);
 
     return {
       success: true,
@@ -479,7 +494,7 @@ Respond with a JSON object containing the refined ${componentType} with the same
       sessionData
     });
 
-    const refined = JSON.parse(response.message);
+    const refined = extractJSON(response.message);
 
     return {
       success: true,
@@ -541,7 +556,7 @@ Respond with a JSON object:
       sessionData
     });
 
-    const requirements = JSON.parse(response.message);
+    const requirements = extractJSON(response.message);
 
     return {
       success: true,
