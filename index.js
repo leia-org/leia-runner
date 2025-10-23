@@ -7,6 +7,7 @@ require('dotenv').config();
 const { initRedis } = require('./config/redis');
 const modelManager = require('./models/modelManager');
 const leiasRoutes = require('./routes/leiasRoutes');
+const wizardRoutes = require('./routes/wizardRoutes');
 const { bearerAuth } = require('./utils/auth');
 
 const deploy = async () => {
@@ -30,6 +31,7 @@ const deploy = async () => {
         }));
 
         app.use('/api/v1', leiasRoutes);
+        app.use('/api/v1/wizard', wizardRoutes);
 
         http.createServer(app).listen(serverPort, () => {
             console.log("\nApp running at http://localhost:" + serverPort);
