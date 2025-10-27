@@ -293,6 +293,79 @@ const WIZARD_TOOLS = [
         required: ['componentType', 'component', 'refinementInstructions']
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_existing_leias',
+      description: 'Search for complete existing LEIAs in the catalog. Returns full LEIA configurations including persona, problem, and behaviour. Use this when user wants to base a new LEIA on an existing one.',
+      parameters: {
+        type: 'object',
+        properties: {
+          search: {
+            type: 'string',
+            description: 'Search term to find LEIAs by name or description'
+          },
+          limit: {
+            type: 'number',
+            description: 'Maximum number of results to return',
+            default: 5
+          }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'load_leia_by_id',
+      description: 'Load a complete LEIA by its ID. Returns the full LEIA with persona, problem, and behaviour components. Use this after finding a LEIA to load its complete specification.',
+      parameters: {
+        type: 'object',
+        properties: {
+          leiaId: {
+            type: 'string',
+            description: 'The ID of the LEIA to load'
+          }
+        },
+        required: ['leiaId']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'clone_and_modify_leia',
+      description: 'Clone an existing LEIA and modify specific components based on user instructions. Use this when user wants to create a new LEIA based on an existing one with specific changes.',
+      parameters: {
+        type: 'object',
+        properties: {
+          sourceLeia: {
+            type: 'object',
+            description: 'The source LEIA to clone (persona, problem, behaviour)'
+          },
+          modifications: {
+            type: 'object',
+            description: 'Instructions for what to modify',
+            properties: {
+              persona: {
+                type: 'string',
+                description: 'Instructions for how to modify the persona (optional)'
+              },
+              problem: {
+                type: 'string',
+                description: 'Instructions for how to modify the problem (optional)'
+              },
+              behaviour: {
+                type: 'string',
+                description: 'Instructions for how to modify the behaviour (optional)'
+              }
+            }
+          }
+        },
+        required: ['sourceLeia', 'modifications']
+      }
+    }
   }
 ];
 
@@ -305,6 +378,9 @@ function getFriendlyFunctionTitle(functionName) {
     search_existing_personas: 'Searching Existing Personas',
     search_existing_problems: 'Searching Existing Problems',
     search_existing_behaviours: 'Searching Existing Behaviours',
+    search_existing_leias: 'Searching Existing LEIAs',
+    load_leia_by_id: 'Loading LEIA',
+    clone_and_modify_leia: 'Cloning and Modifying LEIA',
     evaluate_component_match: 'Evaluating Component Match',
     generate_persona: 'Generating Persona',
     generate_problem: 'Generating Problem',
@@ -357,6 +433,20 @@ function getFriendlyFunctionDescription(functionName, args) {
 
     case 'refine_component':
       return `Refining ${args.componentType}`;
+
+    case 'search_existing_leias':
+      return args.search
+        ? `Searching LEIAs for "${args.search}"`
+        : 'Searching LEIAs in catalog';
+
+    case 'load_leia_by_id':
+      return `Loading LEIA ${args.leiaId}`;
+
+    case 'clone_and_modify_leia':
+      const modifiedComponents = Object.keys(args.modifications || {}).filter(k => args.modifications[k]);
+      return modifiedComponents.length > 0
+        ? `Cloning and modifying ${modifiedComponents.join(', ')}`
+        : 'Cloning LEIA';
 
     default:
       return '';

@@ -7,6 +7,9 @@ const {
   searchExistingPersonas,
   searchExistingProblems,
   searchExistingBehaviours,
+  searchExistingLeias,
+  loadLeiaById,
+  cloneAndModifyLeia,
   evaluateComponentMatch,
   generatePersona,
   generateProblem,
@@ -23,6 +26,9 @@ const FUNCTION_HANDLERS = {
   search_existing_personas: searchExistingPersonas,
   search_existing_problems: searchExistingProblems,
   search_existing_behaviours: searchExistingBehaviours,
+  search_existing_leias: searchExistingLeias,
+  load_leia_by_id: loadLeiaById,
+  clone_and_modify_leia: cloneAndModifyLeia,
   evaluate_component_match: evaluateComponentMatch,
   generate_persona: generatePersona,
   generate_problem: generateProblem,
@@ -37,14 +43,16 @@ const FUNCTION_HANDLERS = {
 const WIZARD_SYSTEM_PROMPT = `You are a LEIA Creation Wizard - an expert AI assistant that helps users create comprehensive Learning Experiences with Intelligent Agents (LEIAs).
 
 Your goal is to understand what the user wants to create and intelligently:
-1. Search for existing components (personas, problems, behaviours) that might fit
-2. Evaluate if existing components are suitable (reuse when quality match is >70)
-3. Generate new components when existing ones don't meet requirements
-4. Validate that all components work together cohesively
-5. Refine components based on user feedback
+1. Search for existing components (personas, problems, behaviours, or complete LEIAs) that might fit
+2. Load and clone existing LEIAs when user wants to base new work on them
+3. Evaluate if existing components are suitable (reuse when quality match is >70)
+4. Generate new components when existing ones don't meet requirements
+5. Validate that all components work together cohesively
+6. Refine components based on user feedback
 
 Key principles:
 - Always start by analyzing requirements to understand what the user wants
+- When user mentions "based on", "similar to", or references an existing LEIA, search and load it first
 - Search for existing public components first before generating new ones
 - Evaluate matches carefully - only reuse components with good fit (score >70)
 - Generate new components when needed, ensuring they align with requirements
@@ -54,13 +62,19 @@ Key principles:
 
 Process flow:
 1. Analyze user request → extract structured requirements
-2. Search existing catalog → find potential matches
-3. Evaluate matches → score component fitness
-4. Generate missing components → create what's needed
-5. Validate complete LEIA → ensure coherence
-6. Present to user → explain choices and allow refinement
+2. If user wants to base on existing LEIA:
+   a. Search existing LEIAs → find the source LEIA
+   b. Load complete LEIA → get all components
+   c. Clone and modify → apply requested changes
+3. Otherwise, search existing catalog → find potential matches
+4. Evaluate matches → score component fitness
+5. Generate missing components → create what's needed
+6. Validate complete LEIA → ensure coherence
+7. Present to user → explain choices and allow refinement
 
-You can handle refinement requests at any stage - use the refine_component function to improve components based on user feedback.`;
+You can handle refinement requests at any stage - use the refine_component function to improve components based on user feedback.
+
+For cloning LEIAs, use clone_and_modify_leia with specific modification instructions for each component (persona, problem, or behaviour).`;
 
 /**
  * Proveedor de modelo para el LEIA Wizard con function calling
@@ -79,7 +93,7 @@ class WizardProvider extends BaseModel {
    * @returns {Promise<Object>} - Detalles de la sesión creada
    */
   async createSession(options) {
-    const { instructions } = options;
+    const { instructions, userToken } = options;
 
     return {
       messages: [
@@ -89,7 +103,8 @@ class WizardProvider extends BaseModel {
       persona: null,
       problem: null,
       behaviour: null,
-      completed: false
+      completed: false,
+      userToken: userToken || null // Store user token for accessing private resources
     };
   }
 
@@ -153,7 +168,8 @@ class WizardProvider extends BaseModel {
             continue;
           }
 
-          const result = await handler(functionArgs);
+          // Pass userToken as second parameter for search functions
+          const result = await handler(functionArgs, sessionData.userToken);
 
           // Emitir evento de función completada
           yield {

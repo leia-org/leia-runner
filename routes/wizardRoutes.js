@@ -17,7 +17,7 @@ const router = express.Router();
  */
 router.post('/sessions', bearerAuth, async (req, res) => {
   try {
-    const { userPrompt } = req.body;
+    const { userPrompt, userToken } = req.body;
 
     if (!userPrompt || typeof userPrompt !== 'string') {
       return res.status(400).json({
@@ -28,8 +28,8 @@ router.post('/sessions', bearerAuth, async (req, res) => {
     // Create new session ID
     const sessionId = uuidv4();
 
-    // Initialize conversation
-    const conversation = await createWizardConversation(userPrompt);
+    // Initialize conversation with user token for private resource access
+    const conversation = await createWizardConversation(userPrompt, userToken);
 
     // Store in Redis
     const redis = redisClient;

@@ -9,11 +9,12 @@ const logger = require('../utils/logger');
 /**
  * Create a new wizard conversation
  */
-async function createWizardConversation(userPrompt) {
+async function createWizardConversation(userPrompt, userToken = null) {
   try {
     const wizardProvider = modelManager.getModel('wizard');
     const sessionData = await wizardProvider.createSession({
-      instructions: userPrompt
+      instructions: userPrompt,
+      userToken
     });
 
     return sessionData;
