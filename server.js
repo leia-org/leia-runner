@@ -21,6 +21,7 @@ app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 // Rutas
 app.use('/api/v1', require('./routes/leiasRoutes'));
+app.use('/api/v1/agent', require('./routes/agentRoutes'));
 
 // Inicializar Redis y sincronizar modelos
 async function initializeServer() {
@@ -37,6 +38,10 @@ async function initializeServer() {
     await modelSyncService.syncModels();
     console.log('Models synchronized in Redis');
 
+    // Inicializar Weaviate Schema
+    const vectorService = require('./services/vectorService');
+    await vectorService.ensureSchema();
+
     // Iniciar el servidor
     app.listen(port, () => {
       console.log(`Server running on port ${port}`);
@@ -51,10 +56,10 @@ initializeServer();
 
 // Gracefully shutdown the server
 process.on('SIGINT', () => {
-    console.log('Received SIGINT. Gracefully shutting down...');
-    process.exit(0);
+  console.log('Received SIGINT. Gracefully shutting down...');
+  process.exit(0);
 });
 process.on('SIGTERM', () => {
-    console.log('Received SIGTERM. Gracefully shutting down...');
-    process.exit(0);
+  console.log('Received SIGTERM. Gracefully shutting down...');
+  process.exit(0);
 });

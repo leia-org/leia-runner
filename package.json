@@ -22,6 +22,7 @@
     "openai": "^4.77.3",
     "redis": "^4.6.13",
     "swagger-ui-express": "^5.0.0",
+    "weaviate-ts-client": "^2.2.0",
     "yamljs": "^0.3.0",
     "zod": "^3.25.76"
   },
