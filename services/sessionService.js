@@ -18,11 +18,16 @@ class SessionService {
       });
       
       // Save session information in Redis
+      // Support both old format (Assistants API: assistantId/threadId) and new format (Responses API: conversationId/instructions)
       const sessionData = {
         sessionId,
         modelName,
+        // Old format (Assistants API)
         assistantId: sessionDetails.assistantId || null,
         threadId: sessionDetails.threadId || null,
+        // New format (Responses API)
+        conversationId: sessionDetails.conversationId || null,
+        instructions: sessionDetails.instructions || null,
         createdAt: Date.now()
       };
       
