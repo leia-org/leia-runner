@@ -34,7 +34,8 @@ module.exports.createLeia = async function createLeia(req, res) {
     await sessionService.storeLeiaMeta(sessionId, {
       leiaId: leia.id || sessionId,
       solution: leia.spec?.problem?.spec?.solution || '',
-      solutionFormat: leia.spec?.problem?.spec?.solutionFormat || 'text'
+      solutionFormat: leia.spec?.problem?.spec?.solutionFormat || 'text',
+      evaluationPrompt: leia.spec?.problem?.spec?.evaluationPrompt || ''
     });
 
     res.status(201).send({

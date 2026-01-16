@@ -22,7 +22,7 @@ class OpenAIAssistantProvider extends BaseModel {
    */
   async createSession(options) {
     const { instructions } = options;
-    
+
     try {
       // Crear un asistente
       const assistant = await this.openai.beta.assistants.create({
@@ -31,14 +31,14 @@ class OpenAIAssistantProvider extends BaseModel {
         tools: [], // Sin herramientas específicas por defecto
         model: "gpt-4o",
       });
-      
+
       // Crear un thread
       const thread = await this.openai.beta.threads.create();
-      
+
       // Almacenar referencias locales
       this.assistants[assistant.id] = assistant;
       this.threads[thread.id] = thread;
-      
+
       return {
         assistantId: assistant.id,
         threadId: thread.id
@@ -48,7 +48,7 @@ class OpenAIAssistantProvider extends BaseModel {
       throw error;
     }
   }
-  
+
   /**
    * Envía un mensaje al modelo
    * @param {Object} options - Opciones para enviar el mensaje
@@ -60,7 +60,7 @@ class OpenAIAssistantProvider extends BaseModel {
   async sendMessage(options) {
     const { message, sessionData } = options;
     const { assistantId, threadId } = sessionData;
-    
+
     try {
       // Añadir mensaje al thread
       await this.openai.beta.threads.messages.create(
@@ -70,21 +70,21 @@ class OpenAIAssistantProvider extends BaseModel {
           content: message,
         }
       );
-      
+
       // Ejecutar el asistente
       const run = await this.openai.beta.threads.runs.create(
         threadId,
-        { 
-          assistant_id: assistantId 
+        {
+          assistant_id: assistantId
         }
       );
-      
+
       // Esperar a que finalice la ejecución
       let runStatus = await this.openai.beta.threads.runs.retrieve(
         threadId,
         run.id
       );
-      
+
       // Esperar hasta que la ejecución se complete
       while (runStatus.status === "queued" || runStatus.status === "in_progress") {
         // Esperar 1 segundo antes de verificar de nuevo
@@ -94,14 +94,14 @@ class OpenAIAssistantProvider extends BaseModel {
           run.id
         );
       }
-      
+
       if (runStatus.status === "completed") {
         // Obtener los mensajes más recientes
         const messages = await this.openai.beta.threads.messages.list(threadId);
-        
+
         // El primer mensaje es el más reciente (respuesta del asistente)
         const assistantMessage = messages.data.find(msg => msg.role === "assistant");
-        
+
         if (assistantMessage && assistantMessage.content.length > 0) {
           // Extraer el contenido de texto del mensaje
           const messageContent = assistantMessage.content[0].text.value;
@@ -118,14 +118,14 @@ class OpenAIAssistantProvider extends BaseModel {
     }
   }
 
-  async evaluateSolution(options){
-    const {leiaMeta, result} = options;
+  async evaluateSolution(options) {
+    const { leiaMeta, result } = options;
 
-    const { solution, solutionFormat } = leiaMeta;
+    const { solution, solutionFormat, evaluationPrompt } = leiaMeta;
 
     try {
       // Create a prompt to evaluate the solution
-      const evaluationPrompt = `
+      const prompt = `
         Evaluate the following solution for a problem:
 
         Expected solution:
@@ -137,17 +137,18 @@ class OpenAIAssistantProvider extends BaseModel {
         The Format to compare is:
         ${solutionFormat}
 
-        Evaluate the provided solution by comparing it with the expected solution.
+        ${evaluationPrompt || `Evaluate the provided solution by comparing it with the expected solution.
         Assign a score between 0 and 10, where:
         - 10 means the solution is perfect
         - 0 means the solution is completely incorrect
-        Provide a detailed evaluation in Markdown format.
+        Provide a detailed evaluation in Markdown format.`}
 
         Respond ONLY with a JSON object in the following format:
         {
           "score": [score between 0 and 10],
           "evaluation": "[detailed evaluation in Markdown format]"
-        }`;
+        }
+        `;
 
       // Make a request to evaluate the solution
       const response = await this.openai.chat.completions.create({
@@ -159,7 +160,7 @@ class OpenAIAssistantProvider extends BaseModel {
           },
           {
             role: "user",
-            content: evaluationPrompt
+            content: prompt
           }
         ],
         response_format: { type: "json_object" }
@@ -167,12 +168,12 @@ class OpenAIAssistantProvider extends BaseModel {
 
       // Extract the content from the response
       const messageContent = response.choices[0].message.content;
-      
+
       // Parse the JSON response
       const evaluationResult = JSON.parse(messageContent);
       return evaluationResult;
-    } catch (error){
-      console.error("Error enviando a OpenAI: "+ error)
+    } catch (error) {
+      console.error("Error enviando a OpenAI: " + error)
       throw error;
     }
   }
