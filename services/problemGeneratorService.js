@@ -1,6 +1,6 @@
 const { OpenAI } = require("openai");
 const z = require("zod");
-const { zodResponseFormat } = require("openai/helpers/zod");
+const { zodResponseFormat, zodTextFormat } = require("openai/helpers/zod");
 
 
 // Schema for generated problem
@@ -73,9 +73,9 @@ ${additionalDetails ? `- Additional instructions: ${additionalDetails}` : ""}
 7. Content should be realistic and educational for students
 8. Use template tags ({{persona.*}}, {{behaviour.*}}) to make the content dynamic where it makes sense`;
 
-        const response = await this.client.responses.create({
+        const response = await this.client.responses.parse({
             model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-            messages: [
+            input: [
                 {
                     role: "system",
                     content: `You are an expert educator and content creator, specialized in generating realistic educational problems and scenarios.
@@ -91,11 +91,11 @@ Always respond in the same language as the example problem provided.`,
                 { role: "user", content: prompt },
             ],
             text: {
-                format: zodResponseFormat(ProblemSpecSchema, "problem_spec"),
+                format: zodTextFormat(ProblemSpecSchema, "problem_spec"),
             }
         });
 
-        const generatedSpec = response.choices[0].message.parsed;
+        const generatedSpec = response.output_parsed;
 
         // Build the complete problem object
         return {
