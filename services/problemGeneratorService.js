@@ -2,6 +2,7 @@ const { OpenAI } = require("openai");
 const z = require("zod");
 const { zodResponseFormat } = require("openai/helpers/zod");
 
+
 // Schema for generated problem
 const ProblemSpecSchema = z.object({
     description: z.string().describe("A clear description of what the problem is about"),
@@ -12,9 +13,10 @@ const ProblemSpecSchema = z.object({
 
 class ProblemGeneratorService {
     constructor() {
-        this.openai = new OpenAI({
+        const openai = new OpenAI({
             apiKey: process.env.OPENAI_API_KEY,
         });
+        this.client = openai;
     }
 
     /**
@@ -50,10 +52,6 @@ You can use these placeholders in the problem fields (description, personaBackgr
 - {{persona.possesivePronoum}} - Possessive pronoun (his/hers/theirs)
 - {{persona.possesiveAdjective}} - Possessive adjective (his/her/their)
 
-### Behaviour tags:
-- {{behaviour.description}} - Description of the behaviour
-- {{behaviour.role}} - Role of the AI in this behaviour
-
 ## EXAMPLE PROBLEM (use as template for structure and style):
 - Description: ${exampleSpec.description || "Not provided"}
 - Persona Background: ${exampleSpec.personaBackground || "Not provided"}
@@ -75,7 +73,7 @@ ${additionalDetails ? `- Additional instructions: ${additionalDetails}` : ""}
 7. Content should be realistic and educational for students
 8. Use template tags ({{persona.*}}, {{behaviour.*}}) to make the content dynamic where it makes sense`;
 
-        const response = await this.openai.beta.chat.completions.parse({
+        const response = await this.client.responses.create({
             model: process.env.OPENAI_MODEL || "gpt-4o-mini",
             messages: [
                 {
@@ -92,7 +90,9 @@ Always respond in the same language as the example problem provided.`,
                 },
                 { role: "user", content: prompt },
             ],
-            response_format: zodResponseFormat(ProblemSpecSchema, "problem_spec"),
+            text: {
+                format: zodResponseFormat(ProblemSpecSchema, "problem_spec"),
+            }
         });
 
         const generatedSpec = response.choices[0].message.parsed;
