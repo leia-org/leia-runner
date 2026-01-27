@@ -14,7 +14,8 @@ class SessionService {
       
       // Create a session with the selected provider
       const sessionDetails = await model.createSession({
-        instructions: prompt
+        instructions: prompt,
+        sessionId
       });
       
       // Save session information in Redis
@@ -28,7 +29,12 @@ class SessionService {
       
       await redisClient.hSet(
         `${this.keyPrefix}${sessionId}`,
-        sessionData
+        Object.fromEntries(
+          Object.entries(sessionData).map(([key, value]) => [
+            key,
+            value !== null && value !== undefined ? String(value) : ''
+          ])
+        )
       );
       
       return sessionData;
