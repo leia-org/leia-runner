@@ -30,10 +30,24 @@ class SessionService {
         instructions: sessionDetails.instructions || null,
         createdAt: Date.now()
       };
+
+      const redisSessionData = {};
+      for (const [key, value] of Object.entries(sessionData)) {
+        if (value === null || value === undefined) {
+          continue;
+        }
+
+        if (typeof value === 'object') {
+          console.warn(`Skipping non-primitive session field '${key}' for ${sessionId}`);
+          continue;
+        }
+
+        redisSessionData[key] = String(value);
+      }
       
       await redisClient.hSet(
         `${this.keyPrefix}${sessionId}`,
-        sessionData
+        redisSessionData
       );
       
       return sessionData;
