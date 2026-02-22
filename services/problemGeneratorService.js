@@ -1,6 +1,6 @@
 const { OpenAI } = require("openai");
 const z = require("zod");
-const { zodResponseFormat, zodTextFormat } = require("openai/helpers/zod");
+const { zodTextFormat } = require("openai/helpers/zod");
 
 
 // Schema for generated problem
@@ -9,7 +9,33 @@ const ProblemSpecSchema = z.object({
     personaBackground: z.string().describe("Background context for the persona in this problem scenario"),
     details: z.string().describe("Extended details about the problem, including specific requirements"),
     solution: z.string().describe("The expected solution in the specified format"),
+    evaluationPrompt: z.string().optional().describe("Prompt used to evaluate the student solution"),
+    extendsJson: z.string().optional().describe("JSON object string for extends (e.g., {\"persona\": {\"spec\": {\"personality\": [\"very busy\"]}}})"),
+    overridesJson: z.string().optional().describe("JSON object string for overrides (e.g., {\"behaviour\": {\"spec\": {\"role\": \"tax inspector\"}}})"),
 });
+
+const isObject = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+const hasKeys = (value) => isObject(value) && Object.keys(value).length > 0;
+const safeStringifyObject = (value) => {
+    if (!isObject(value)) return "Not provided";
+    try {
+        return JSON.stringify(value, null, 2);
+    } catch {
+        return "Not provided";
+    }
+};
+const safeParseJsonObject = (value) => {
+    if (typeof value !== "string" || !value.trim()) {
+        return null;
+    }
+
+    try {
+        const parsed = JSON.parse(value);
+        return isObject(parsed) ? parsed : null;
+    } catch {
+        return null;
+    }
+};
 
 class ProblemGeneratorService {
     constructor() {
@@ -22,7 +48,7 @@ class ProblemGeneratorService {
     /**
      * Generates a new problem based on an example problem with a different subject
      * @param {Object} params - Generation parameters
-     * @param {string} params.subject - The new subject for the problem (e.g., "Prison Management System")
+     * @param {string} params.subject - The new subject for the problem (e.g., "Library Management System")
      * @param {string} params.additionalDetails - Optional additional instructions from the user
      * @param {Object} params.exampleProblem - The example problem to use as a template
      * @returns {Promise<Object>} - Generated problem matching the Problem schema
@@ -33,6 +59,12 @@ class ProblemGeneratorService {
         }
 
         const exampleSpec = exampleProblem.spec || exampleProblem;
+        const templateHasEvaluationPrompt = Boolean(
+            typeof exampleSpec.evaluationPrompt === "string" &&
+            exampleSpec.evaluationPrompt.trim()
+        );
+        const templateHasExtends = hasKeys(exampleSpec.extends);
+        const templateHasOverrides = hasKeys(exampleSpec.overrides);
 
         const prompt = `Generate a new problem for an educational exercise.
 
@@ -58,6 +90,9 @@ You can use these placeholders in the problem fields (description, personaBackgr
 - Details: ${exampleSpec.details || "Not provided"}
 - Solution: ${exampleSpec.solution || "Not provided"}
 - Solution Format: ${exampleSpec.solutionFormat || "text"}
+- Evaluation Prompt: ${templateHasEvaluationPrompt ? exampleSpec.evaluationPrompt : "Not provided"}
+- Extends (JSON): ${safeStringifyObject(exampleSpec.extends)}
+- Overrides (JSON): ${safeStringifyObject(exampleSpec.overrides)}
 
 ## NEW PROBLEM REQUIREMENTS:
 - Topic/Domain: "${subject}"
@@ -71,7 +106,17 @@ ${additionalDetails ? `- Additional instructions: ${additionalDetails}` : ""}
 5. The SOLUTION must be complete and in ${exampleSpec.solutionFormat || "text"} format (if "mermaid", generate a valid UML class diagram)
 6. Maintain the same level of complexity and detail as the example
 7. Content should be realistic and educational for students
-8. Use template tags ({{persona.*}}, {{behaviour.*}}) to make the content dynamic where it makes sense`;
+8. Use template tags ({{persona.*}}, {{behaviour.*}}) to make the content dynamic where it makes sense
+9. ${templateHasEvaluationPrompt
+        ? "Generate an adapted EVALUATION PROMPT for the new domain keeping the same intent and strictness."
+        : "If there is no evaluation prompt in the template, return an empty string or omit it."}
+10. ${templateHasExtends
+        ? "Adapt EXTENDS to the new domain. Keep the same structure and keys, but update domain-specific values."
+        : "If extends is not provided in the template, return an empty object or omit it."}
+11. ${templateHasOverrides
+        ? "Adapt OVERRIDES to the new domain. Keep the same structure and keys, but update domain-specific values."
+        : "If overrides is not provided in the template, return an empty object or omit it."}
+12. IMPORTANT: Return extends and overrides as valid JSON STRINGS in fields extendsJson and overridesJson. Use "{}" when empty.`;
 
         const response = await this.client.responses.parse({
             model: process.env.OPENAI_MODEL || "gpt-4o-mini",
@@ -95,21 +140,29 @@ Always respond in the same language as the example problem provided.`,
             }
         });
 
-        const generatedSpec = response.output_parsed;
+        const generatedSpec = response.output_parsed || {};
+        const generatedExtends = safeParseJsonObject(generatedSpec.extendsJson);
+        const generatedOverrides = safeParseJsonObject(generatedSpec.overridesJson);
 
         // Build the complete problem object
         return {
             apiVersion: "v1",
             metadata: {
-                name: subject.toLowerCase().replace(/\s+/g, "-"),
+                name: subject.trim().toLowerCase().replace(/\s+/g, "-"),
                 version: "1.0.0",
             },
             spec: {
                 ...generatedSpec,
                 solutionFormat: exampleSpec.solutionFormat || "text",
                 process: exampleSpec.process || [],
-                extends: exampleSpec.extends || {},
-                overrides: exampleSpec.overrides || {},
+                evaluationPrompt: generatedSpec.evaluationPrompt
+                    || (templateHasEvaluationPrompt ? exampleSpec.evaluationPrompt : ""),
+                extends: hasKeys(generatedExtends)
+                    ? generatedExtends
+                    : (exampleSpec.extends || {}),
+                overrides: hasKeys(generatedOverrides)
+                    ? generatedOverrides
+                    : (exampleSpec.overrides || {}),
                 constrainedTo: exampleSpec.constrainedTo || {},
             },
         };

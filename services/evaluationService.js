@@ -31,8 +31,8 @@ class EvaluationService {
     }
 
     const expectedSolution = leia.spec.problem.spec.solution;
-    const solutionFormat = leia.spec.problem.solutionFormat;
-    const evaluationPrompt = leia.spec.problem.evaluationPrompt;
+    const solutionFormat = leia.spec.problem.spec.solutionFormat;
+    const evaluationPrompt = leia.spec.problem.spec.evaluationPrompt;
 
     const prompt = this.generatePrompt(result, expectedSolution, solutionFormat, evaluationPrompt)
 
@@ -63,7 +63,7 @@ class EvaluationService {
       }
     }
 
-    return `Evaluate the following solution (${solutionFormat} format):
+    return `Evaluate the following solution (${format} format):
 
 Student's solution:
 ${studentSolution}
