@@ -7,21 +7,22 @@ const problemGeneratorService = require("../services/problemGeneratorService");
 const generateProblem = async (req, res) => {
     try {
         const { subject, additionalDetails, exampleProblem } = req.body;
+        const normalizedSubject = typeof subject === "string" ? subject.trim() : "";
 
-        if (!subject) {
+        if (!normalizedSubject) {
             return res.status(400).json({
                 error: "Subject is required",
             });
         }
 
-        if (!exampleProblem) {
+        if (!exampleProblem || typeof exampleProblem !== "object") {
             return res.status(400).json({
                 error: "Example problem is required",
             });
         }
 
         const generatedProblem = await problemGeneratorService.generateProblem({
-            subject,
+            subject: normalizedSubject,
             additionalDetails,
             exampleProblem,
         });
