@@ -26,13 +26,15 @@ class ModelSyncService {
       // Guardar los modelos en Redis
       await redisClient.set(
         `${this.keyPrefix}available`,
-        JSON.stringify(models)
+        JSON.stringify(models),
+        { EX: 3600 } // 1 hour
       );
 
       // Guardar el modelo por defecto
       await redisClient.set(
         `${this.keyPrefix}default`,
-        defaultModel
+        defaultModel,
+        { EX: 3600 } // 1 hour
       );
 
       console.log('Models synchronized successfully in Redis');

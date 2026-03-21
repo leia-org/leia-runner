@@ -75,10 +75,12 @@ class ModelManager {
             this.models.set(modelName, modelModule);
             this.validatedModels.add(modelName);
             await redisClient.hSet('validated_models', modelName, 'true');
+            await redisClient.expire('validated_models', 86400); // 24 hours
             console.log(`Modelo '${modelName}' cargado y validado exitosamente`);
           } else {
             console.error(`Modelo '${modelName}' falló los tests:`, testResult.errors);
             await redisClient.hSet('validated_models', modelName, 'false');
+            await redisClient.expire('validated_models', 86400); // 24 hours
           }
         } catch (error) {
           console.error(`Error cargando el modelo '${modelName}':`, error);
@@ -175,11 +177,13 @@ class ModelManager {
         this.models.set(modelName, modelModule);
         this.validatedModels.add(modelName);
         await redisClient.hSet('validated_models', modelName, 'true');
+        await redisClient.expire('validated_models', 86400); // 24 hours
         this.notifyModelChanges();
         return { success: true };
       } else {
         await redisClient.hSet('validated_models', modelName, 'false');
-        return { 
+        await redisClient.expire('validated_models', 86400); // 24 hours
+        return {
           success: false, 
           errors: testResult.errors 
         };
