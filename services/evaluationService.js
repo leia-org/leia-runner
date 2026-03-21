@@ -32,21 +32,9 @@ class EvaluationService {
 
     const expectedSolution = leia.spec.problem.spec.solution;
     const solutionFormat = leia.spec.problem.solutionFormat;
+    const evaluationPrompt = leia.spec.problem.evaluationPrompt;
 
-    let prompt;
-
-    switch (solutionFormat) {
-      case "mermaid":
-        prompt = this.generateUMLDiagramPrompt(result, expectedSolution);
-        break;
-      default:
-        prompt = this.generateGenericPrompt(
-          result,
-          expectedSolution,
-          solutionFormat
-        );
-        break;
-    }
+    const prompt = this.generatePrompt(result, expectedSolution, solutionFormat, evaluationPrompt)
 
     const response = await this.openai.beta.chat.completions.parse({
       model: "gpt-4-turbo",
@@ -63,6 +51,27 @@ class EvaluationService {
     });
 
     return response.choices[0].message;
+  }
+
+  generatePrompt(studentSolution, exerciseSolution, format, evaluationPrompt) {
+    if (!evaluationPrompt) {
+      switch (format) {
+        case "mermaid":
+          return this.generateUMLDiagramPrompt(studentSolution, exerciseSolution);
+        default:
+          return this.generateGenericPrompt(studentSolution, exerciseSolution, format);
+      }
+    }
+
+    return `Evaluate the following solution (${solutionFormat} format):
+
+Student's solution:
+${studentSolution}
+
+Exercise's solution:
+${exerciseSolution}
+
+${evaluationPrompt}`
   }
 
   /**
