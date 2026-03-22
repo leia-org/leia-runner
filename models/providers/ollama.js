@@ -1,12 +1,14 @@
 require('dotenv').config();
-const OpenAI = require('openai');
+const { Ollama } = require('ollama');
 const BaseModel = require('./baseModel');
-const ollama = require('ollama').default;
+
+const ollama = new Ollama({ host: process.env.OLLAMA_HOST || 'http://localhost:11434' });
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'gemma3:1b';
 
 /**
- * Proveedor de modelo basado en OpenAI Assistants API
+ * Proveedor de modelo basado en Ollama (modelos locales)
  */
-class OpenAIAssistantProvider extends BaseModel {
+class OllamaProvider extends BaseModel {
   constructor() {
     super();
     this.name = 'ollama';
@@ -14,79 +16,32 @@ class OpenAIAssistantProvider extends BaseModel {
   }
 
   /**
-   * Crea una nueva sesión con OpenAI Assistants API
+   * Crea una nueva sesión con Ollama
    * @param {Object} options - Opciones para crear la sesión
    * @param {string} options.instructions - Instrucciones iniciales para el asistente
+   * @param {string} options.sessionId - ID de la sesión
    * @returns {Promise<Object>} - Detalles de la sesión creada
    */
-
   async createSession(options) {
     const { instructions, sessionId } = options;
-    
+
     try {
-      //Definimos las instruccines iniciales como
-      /**
-       * [
+      this.threads[sessionId] = [
         {
-            'role': 'system',
-            'content': [
-                {'type': 'text', 'text': "What's in this image?"},
-            ],
+          role: 'system',
+          content: [{ type: 'text', text: instructions }]
         }
-    ]
-       */
+      ];
 
-    const messages = [
-      {
-        role: 'system',
-        content: [
-          { type: 'text', text: instructions }
-        ]
-      }
-    ]
-
-
-    this.threads[sessionId] = messages;
-
-    return {
-      assistantId: sessionId,
-      threadId: sessionId
-    };
-  } catch (error) {
-    console.error('Error al crear sesión con OpenAI Assistant:', error);
-    throw error;
+      return {
+        assistantId: sessionId,
+        threadId: sessionId
+      };
+    } catch (error) {
+      console.error('Error al crear sesión con Ollama:', error);
+      throw error;
+    }
   }
-}
-  
-    
-  // async createSession(options) {
-  //   const { instructions } = options;
-    
-  //   try {
-  //     // Crear un asistente
-  //     const assistant = await this.openai.beta.assistants.create({
-  //       name: "LEIA Assistant",
-  //       instructions: instructions || "Eres un asistente útil",
-  //       tools: [], // Sin herramientas específicas por defecto
-  //       model: "gpt-4o",
-  //     });
-      
-  //     // Crear un thread
-  //     const thread = await this.openai.beta.threads.create();
-      
-  //     // Almacenar referencias locales
-  //     this.assistants[assistant.id] = assistant;
-  //     this.threads[thread.id] = thread;
-      
-  //     return {
-  //       assistantId: assistant.id,
-  //       threadId: thread.id
-  //     };
-  //   } catch (error) {
-  //     console.error('Error al crear sesión con OpenAI Assistant:', error);
-  //     throw error;
-  //   }
-  // }
   
   /**
    * Envía un mensaje al modelo
@@ -122,7 +77,7 @@ class OpenAIAssistantProvider extends BaseModel {
       }));
 
       const response = await ollama.chat({
-        model: 'gemma3:1b',
+        model: OLLAMA_MODEL,
         messages: ollamaMessages,
       })
 
@@ -137,7 +92,7 @@ class OpenAIAssistantProvider extends BaseModel {
       return { message: messageContent };
     
     } catch (error) {
-      console.error('Error enviando mensaje a OpenAI Assistant:', error);
+      console.error('Error enviando mensaje a Ollama:', error);
       throw error;
     }
   }
@@ -174,7 +129,7 @@ class OpenAIAssistantProvider extends BaseModel {
         }`;
 
       const response = await ollama.chat({
-        model: 'gemma3:1b',
+        model: OLLAMA_MODEL,
         messages: [
           {
             role: "system",
@@ -197,10 +152,10 @@ class OpenAIAssistantProvider extends BaseModel {
       const evaluationResult = JSON.parse(messageContent);
       return evaluationResult;
     } catch (error){
-      console.error("Error enviando a OpenAI: "+ error)
+      console.error('Error evaluando solución con Ollama:', error);
       throw error;
     }
   }
 }
 
-module.exports = new OpenAIAssistantProvider(); 
+module.exports = new OllamaProvider(); 
