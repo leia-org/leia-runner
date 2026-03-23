@@ -29,7 +29,7 @@ class OpenAIAssistantProvider extends BaseModel {
         name: "LEIA Assistant",
         instructions: instructions || "Eres un asistente útil",
         tools: [], // Sin herramientas específicas por defecto
-        model: "gpt-4o",
+        model: "gpt-5.4-mini",
       });
 
       // Crear un thread
@@ -153,7 +153,7 @@ class OpenAIAssistantProvider extends BaseModel {
 
       // Make a request to evaluate the solution
       const response = await this.openai.chat.completions.create({
-        model: process.env.OPENAI_EVALUATION_MODEL || "gpt-4o",
+        model: process.env.OPENAI_EVALUATION_MODEL || "gpt-5.4-mini",
         messages: [
           {
             role: "system",

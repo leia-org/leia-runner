@@ -156,7 +156,7 @@ ${requiredTags.length ? `- Required tags in description: ${requiredTags.join(", 
 9. NEVER inline concrete case data inside tags like <details>, <statement>, <background>, <engineerOutput>; always keep placeholders there.`;
 
         const response = await this.client.responses.parse({
-            model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+            model: process.env.OPENAI_MODEL || "gpt-5.4-mini",
             input: [
                 {
                     role: "system",
