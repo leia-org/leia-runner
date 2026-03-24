@@ -1,6 +1,5 @@
-const { OpenAI } = require("openai");
 const z = require("zod");
-const { zodTextFormat } = require("openai/helpers/zod");
+const structuredGenerationService = require("./structuredGenerationService");
 
 const BehaviourSpecSchema = z.object({
     description: z.string().min(20).describe("Detailed behavioural instructions for the LEIA role, preserving template tags"),
@@ -19,6 +18,25 @@ const CORE_PLACEHOLDERS = [
     "{{problem.solution}}",
     "{{behaviour.role}}",
 ];
+
+const BehaviourSpecResponseFormat = {
+    type: "object",
+    properties: {
+        description: {
+            type: "string",
+            description: "Detailed behavioural instructions for the LEIA role, preserving template tags",
+        },
+        role: {
+            type: "string",
+            description: "Role name for the behaviour",
+        },
+        tooltip: {
+            type: "string",
+            description: "Short helper tooltip for this behaviour",
+        },
+    },
+    required: ["description", "role", "tooltip"],
+};
 
 const normalizeProcess = (process) => {
     if (!Array.isArray(process)) {
@@ -94,12 +112,6 @@ const ensurePlaceholders = (description, placeholders) => {
 };
 
 class BehaviourGeneratorService {
-    constructor() {
-        this.client = new OpenAI({
-            apiKey: process.env.OPENAI_API_KEY,
-        });
-    }
-
     async generateBehaviour({ subject, additionalDetails, exampleBehaviour }) {
         if (!subject || !exampleBehaviour) {
             throw new Error("Subject and example behaviour are required");
@@ -155,23 +167,21 @@ ${requiredTags.length ? `- Required tags in description: ${requiredTags.join(", 
 8. Do not output markdown code fences or extra fields.
 9. NEVER inline concrete case data inside tags like <details>, <statement>, <background>, <engineerOutput>; always keep placeholders there.`;
 
-        const response = await this.client.responses.parse({
-            model: process.env.OPENAI_MODEL || "gpt-5.4-mini",
-            input: [
-                {
-                    role: "system",
-                    content: `You are an expert instructional designer specialized in crafting AI behavior prompts for educational simulations.
+        const generatedSpec =
+            (await structuredGenerationService.generateObject({
+                systemPrompt: `You are an expert instructional designer specialized in crafting AI behavior prompts for educational simulations.
 
 Generate behaviour specs that are practical, clear and suitable for student training scenarios.`,
-                },
-                { role: "user", content: prompt },
-            ],
-            text: {
-                format: zodTextFormat(BehaviourSpecSchema, "behaviour_spec"),
-            },
-        });
-
-        const generatedSpec = response.output_parsed || {};
+                userPrompt: prompt,
+                zodSchema: BehaviourSpecSchema,
+                schemaName: "behaviour_spec",
+                openaiModel: process.env.OPENAI_MODEL || "gpt-5.4-mini",
+                geminiModel:
+                    process.env.GEMINI_BEHAVIOUR_MODEL ||
+                    process.env.GEMINI_MODEL ||
+                    "gemini-3.1-flash-lite-preview",
+                geminiResponseFormat: BehaviourSpecResponseFormat,
+            })) || {};
         const generatedDescription = generatedSpec.description?.trim();
         const generatedRole = generatedSpec.role?.trim();
         const generatedTooltip = generatedSpec.tooltip?.trim();

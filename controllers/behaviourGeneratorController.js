@@ -31,9 +31,9 @@ const generateBehaviour = async (req, res) => {
     } catch (error) {
         console.error("Error generating behaviour:", error);
 
-        if (error.code === "invalid_api_key") {
+        if (error.code === "invalid_api_key" || error.message?.includes("API_KEY is not configured")) {
             return res.status(500).json({
-                error: "OpenAI API configuration error",
+                error: "AI provider configuration error",
             });
         }
 
