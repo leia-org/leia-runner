@@ -74,7 +74,7 @@ ${additionalDetails ? `- Additional instructions: ${additionalDetails}` : ""}
 8. Use template tags ({{persona.*}}, {{behaviour.*}}) to make the content dynamic where it makes sense`;
 
         const response = await this.client.responses.parse({
-            model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+            model: process.env.OPENAI_MODEL || "gpt-5.4-mini",
             input: [
                 {
                     role: "system",

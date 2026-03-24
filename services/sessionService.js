@@ -7,6 +7,63 @@ class SessionService {
     this.leiaMetaPrefix = 'leia:meta:';
   }
 
+  serializeSessionData(sessionData) {
+    const redisSessionData = {};
+
+    for (const [key, value] of Object.entries(sessionData)) {
+      if (value === null || value === undefined) {
+        redisSessionData[key] = '';
+      } else if (typeof value === 'object') {
+        redisSessionData[key] = JSON.stringify(value);
+      } else {
+        redisSessionData[key] = String(value);
+      }
+    }
+
+    return redisSessionData;
+  }
+
+  deserializeSessionData(sessionData) {
+    if (!sessionData || Object.keys(sessionData).length === 0) {
+      return null;
+    }
+
+    const normalizedSessionData = { ...sessionData };
+
+    if (normalizedSessionData.providerState) {
+      try {
+        normalizedSessionData.providerState = JSON.parse(normalizedSessionData.providerState);
+      } catch (error) {
+        console.warn('No se pudo parsear providerState, se usará el valor almacenado:', error.message);
+      }
+    }
+
+    return normalizedSessionData;
+  }
+
+  async updateSession(sessionId, sessionUpdates) {
+    const currentSessionData = await this.getSession(sessionId);
+
+    if (!currentSessionData) {
+      return null;
+    }
+
+    const mergedSessionData = { ...currentSessionData };
+
+    for (const [key, value] of Object.entries(sessionUpdates)) {
+      if (value !== undefined) {
+        mergedSessionData[key] = value;
+      }
+    }
+
+    await redisClient.hSet(
+      `${this.keyPrefix}${sessionId}`,
+      this.serializeSessionData(mergedSessionData)
+    );
+
+    return mergedSessionData;
+  }
+
   async createSession(sessionId, prompt, modelName = 'default') {
     try {
       // Get the model
@@ -21,14 +78,15 @@ class SessionService {
       const sessionData = {
         sessionId,
         modelName,
-        assistantId: sessionDetails.assistantId || null,
-        threadId: sessionDetails.threadId || null,
+        assistantId: sessionDetails.assistantId ?? '',
+        threadId: sessionDetails.threadId ?? '',
+        providerState: sessionDetails.providerState ?? '',
         createdAt: Date.now()
       };
       
       await redisClient.hSet(
         `${this.keyPrefix}${sessionId}`,
-        sessionData
+        this.serializeSessionData(sessionData)
       );
       
       return sessionData;
@@ -42,11 +100,7 @@ class SessionService {
     try {
       const sessionData = await redisClient.hGetAll(`${this.keyPrefix}${sessionId}`);
       
-      if (!sessionData || Object.keys(sessionData).length === 0) {
-        return null;
-      }
-      
-      return sessionData;
+      return this.deserializeSessionData(sessionData);
     } catch (error) {
       console.error(`Error getting session ${sessionId}:`, error);
       throw error;
@@ -71,6 +125,11 @@ class SessionService {
         message,
         sessionData
       });
+
+      if (response?.sessionData) {
+        await this.updateSession(sessionId, response.sessionData);
+        delete response.sessionData;
+      }
       
       return response;
     } catch (error) {
