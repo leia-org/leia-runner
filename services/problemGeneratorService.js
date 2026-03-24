@@ -1,6 +1,5 @@
-const { OpenAI } = require("openai");
 const z = require("zod");
-const { zodResponseFormat, zodTextFormat } = require("openai/helpers/zod");
+const structuredGenerationService = require("./structuredGenerationService");
 
 
 // Schema for generated problem
@@ -11,14 +10,30 @@ const ProblemSpecSchema = z.object({
     solution: z.string().describe("The expected solution in the specified format"),
 });
 
-class ProblemGeneratorService {
-    constructor() {
-        const openai = new OpenAI({
-            apiKey: process.env.OPENAI_API_KEY,
-        });
-        this.client = openai;
-    }
+const ProblemSpecResponseFormat = {
+    type: "object",
+    properties: {
+        description: {
+            type: "string",
+            description: "A clear description of what the problem is about",
+        },
+        personaBackground: {
+            type: "string",
+            description: "Background context for the persona in this problem scenario",
+        },
+        details: {
+            type: "string",
+            description: "Extended details about the problem, including specific requirements",
+        },
+        solution: {
+            type: "string",
+            description: "The expected solution in the specified format",
+        },
+    },
+    required: ["description", "personaBackground", "details", "solution"],
+};
 
+class ProblemGeneratorService {
     /**
      * Generates a new problem based on an example problem with a different subject
      * @param {Object} params - Generation parameters
@@ -73,12 +88,8 @@ ${additionalDetails ? `- Additional instructions: ${additionalDetails}` : ""}
 7. Content should be realistic and educational for students
 8. Use template tags ({{persona.*}}, {{behaviour.*}}) to make the content dynamic where it makes sense`;
 
-        const response = await this.client.responses.parse({
-            model: process.env.OPENAI_MODEL || "gpt-5.4-mini",
-            input: [
-                {
-                    role: "system",
-                    content: `You are an expert educator and content creator, specialized in generating realistic educational problems and scenarios.
+        const generatedSpec = await structuredGenerationService.generateObject({
+            systemPrompt: `You are an expert educator and content creator, specialized in generating realistic educational problems and scenarios.
 
 Your task is to generate problems that simulate real-world scenarios. The problems should be:
 - Realistic and based on real business/organizational domains
@@ -87,15 +98,16 @@ Your task is to generate problems that simulate real-world scenarios. The proble
 - With solutions that represent the expected outcome (in mermaid format if specified)
 
 Always respond in the same language as the example problem provided.`,
-                },
-                { role: "user", content: prompt },
-            ],
-            text: {
-                format: zodTextFormat(ProblemSpecSchema, "problem_spec"),
-            }
+            userPrompt: prompt,
+            zodSchema: ProblemSpecSchema,
+            schemaName: "problem_spec",
+            openaiModel: process.env.OPENAI_MODEL || "gpt-5.4-mini",
+            geminiModel:
+                process.env.GEMINI_PROBLEM_MODEL ||
+                process.env.GEMINI_MODEL ||
+                "gemini-3.1-flash-lite-preview",
+            geminiResponseFormat: ProblemSpecResponseFormat,
         });
-
-        const generatedSpec = response.output_parsed;
 
         // Build the complete problem object
         return {
