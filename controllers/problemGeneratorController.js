@@ -30,10 +30,10 @@ const generateProblem = async (req, res) => {
     } catch (error) {
         console.error("Error generating problem:", error);
 
-        // Handle specific OpenAI API errors
-        if (error.code === "invalid_api_key") {
+        // Handle provider configuration errors
+        if (error.code === "invalid_api_key" || error.message?.includes("API_KEY is not configured")) {
             return res.status(500).json({
-                error: "OpenAI API configuration error",
+                error: "AI provider configuration error",
             });
         }
 
