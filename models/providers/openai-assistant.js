@@ -1,130 +1,175 @@
 require('dotenv').config();
-const OpenAI = require('openai');
+const { OpenAI } = require('openai');
+const z = require('zod');
+const { zodTextFormat } = require('openai/helpers/zod');
 const BaseModel = require('./baseModel');
 
+const EvaluationSchema = z.object({
+  score: z.number().min(0).max(10),
+  evaluation: z.string(),
+});
+
 /**
- * Proveedor de modelo basado en OpenAI Assistants API
+ * Proveedor de OpenAI basado en Responses + Conversations.
+ * Mantiene el nombre legacy del archivo para no romper la configuración actual.
  */
 class OpenAIAssistantProvider extends BaseModel {
   constructor() {
     super();
     this.name = 'openai-assistant';
-    this.openai = new OpenAI(process.env.OPENAI_API_KEY);
-    this.assistants = {};
-    this.threads = {};
+    this.model = 'gpt-5.4-mini';
+    this.evaluationModel = process.env.OPENAI_EVALUATION_MODEL || 'gpt-5.4-mini';
+    this.openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
   }
 
-  /**
-   * Crea una nueva sesión con OpenAI Assistants API
-   * @param {Object} options - Opciones para crear la sesión
-   * @param {string} options.instructions - Instrucciones iniciales para el asistente
-   * @returns {Promise<Object>} - Detalles de la sesión creada
-   */
+  ensureApiKey() {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY is not configured');
+    }
+  }
+
+  getDefaultInstructions() {
+    return 'Eres un asistente util';
+  }
+
+  getProviderState(sessionData = {}) {
+    const providerState =
+      sessionData.providerState && typeof sessionData.providerState === 'object'
+        ? sessionData.providerState
+        : {};
+
+    const threadId = typeof sessionData.threadId === 'string' ? sessionData.threadId : '';
+    const conversationId =
+      providerState.conversationId || (threadId.startsWith('conv_') ? threadId : '');
+
+    return {
+      systemInstruction: providerState.systemInstruction || this.getDefaultInstructions(),
+      conversationId,
+      lastResponseId: providerState.lastResponseId || '',
+    };
+  }
+
+  async createConversation() {
+    this.ensureApiKey();
+
+    const conversation = await this.openai.post('/conversations', { body: {} });
+
+    if (!conversation?.id) {
+      throw new Error('OpenAI no devolvio un identificador de conversacion');
+    }
+
+    return conversation;
+  }
+
+  extractResponseText(response) {
+    if (typeof response?.output_text === 'string' && response.output_text.trim()) {
+      return response.output_text.trim();
+    }
+
+    if (!Array.isArray(response?.output)) {
+      return '';
+    }
+
+    return response.output
+      .filter((item) => item?.type === 'message' && Array.isArray(item.content))
+      .flatMap((item) => item.content)
+      .filter((content) => content?.type === 'output_text' && typeof content.text === 'string')
+      .map((content) => content.text.trim())
+      .filter(Boolean)
+      .join('\n\n');
+  }
+
+  buildSessionData({ conversationId, systemInstruction, lastResponseId = '' }) {
+    return {
+      assistantId: '',
+      threadId: conversationId,
+      providerState: {
+        conversationId,
+        systemInstruction,
+        lastResponseId,
+      },
+    };
+  }
+
   async createSession(options) {
     const { instructions } = options;
+    const systemInstruction = instructions || this.getDefaultInstructions();
 
     try {
-      // Crear un asistente
-      const assistant = await this.openai.beta.assistants.create({
-        name: "LEIA Assistant",
-        instructions: instructions || "Eres un asistente útil",
-        tools: [], // Sin herramientas específicas por defecto
-        model: "gpt-5.4-mini",
+      const conversation = await this.createConversation();
+
+      return this.buildSessionData({
+        conversationId: conversation.id,
+        systemInstruction,
       });
-
-      // Crear un thread
-      const thread = await this.openai.beta.threads.create();
-
-      // Almacenar referencias locales
-      this.assistants[assistant.id] = assistant;
-      this.threads[thread.id] = thread;
-
-      return {
-        assistantId: assistant.id,
-        threadId: thread.id
-      };
     } catch (error) {
-      console.error('Error al crear sesión con OpenAI Assistant:', error);
+      console.error('Error al crear sesion con OpenAI Conversations:', error);
       throw error;
     }
   }
 
-  /**
-   * Envía un mensaje al modelo
-   * @param {Object} options - Opciones para enviar el mensaje
-   * @param {string} options.sessionId - ID de la sesión
-   * @param {string} options.message - Mensaje a enviar
-   * @param {Object} options.sessionData - Datos de la sesión
-   * @returns {Promise<Object>} - Respuesta del modelo
-   */
   async sendMessage(options) {
     const { message, sessionData } = options;
-    const { assistantId, threadId } = sessionData;
+    const providerState = this.getProviderState(sessionData);
 
     try {
-      // Añadir mensaje al thread
-      await this.openai.beta.threads.messages.create(
-        threadId,
-        {
-          role: "user",
-          content: message,
+      let conversationId = providerState.conversationId;
+
+      if (!conversationId) {
+        if (sessionData?.assistantId || sessionData?.threadId) {
+          console.warn(
+            'Sesion legacy de Assistants detectada. Se iniciara una nueva conversacion sin historial previo.'
+          );
         }
-      );
 
-      // Ejecutar el asistente
-      const run = await this.openai.beta.threads.runs.create(
-        threadId,
-        {
-          assistant_id: assistantId
-        }
-      );
-
-      // Esperar a que finalice la ejecución
-      let runStatus = await this.openai.beta.threads.runs.retrieve(
-        threadId,
-        run.id
-      );
-
-      // Esperar hasta que la ejecución se complete
-      while (runStatus.status === "queued" || runStatus.status === "in_progress") {
-        // Esperar 1 segundo antes de verificar de nuevo
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        runStatus = await this.openai.beta.threads.runs.retrieve(
-          threadId,
-          run.id
-        );
+        const conversation = await this.createConversation();
+        conversationId = conversation.id;
       }
 
-      if (runStatus.status === "completed") {
-        // Obtener los mensajes más recientes
-        const messages = await this.openai.beta.threads.messages.list(threadId);
+      const response = await this.openai.responses.create({
+        model: this.model,
+        conversation: conversationId,
+        instructions: providerState.systemInstruction,
+        input: [
+          {
+            role: 'user',
+            content: message,
+          },
+        ],
+        store: true,
+      });
 
-        // El primer mensaje es el más reciente (respuesta del asistente)
-        const assistantMessage = messages.data.find(msg => msg.role === "assistant");
-
-        if (assistantMessage && assistantMessage.content.length > 0) {
-          // Extraer el contenido de texto del mensaje
-          const messageContent = assistantMessage.content[0].text.value;
-          return { message: messageContent };
-        } else {
-          throw new Error("No se encontró respuesta del asistente");
-        }
-      } else {
-        throw new Error(`La ejecución del asistente falló con estado: ${runStatus.status}`);
+      if (response?.error) {
+        throw new Error(response.error.message || 'OpenAI devolvio un error al generar la respuesta');
       }
+
+      const responseMessage = this.extractResponseText(response);
+
+      if (!responseMessage) {
+        throw new Error('OpenAI no devolvio contenido de texto');
+      }
+
+      return {
+        message: responseMessage,
+        sessionData: this.buildSessionData({
+          conversationId,
+          systemInstruction: providerState.systemInstruction,
+          lastResponseId: response.id || providerState.lastResponseId,
+        }),
+      };
     } catch (error) {
-      console.error('Error enviando mensaje a OpenAI Assistant:', error);
+      console.error('Error enviando mensaje a OpenAI Conversations:', error);
       throw error;
     }
   }
 
   async evaluateSolution(options) {
     const { leiaMeta, result } = options;
-
     const { solution, solutionFormat, evaluationPrompt } = leiaMeta;
 
     try {
-      // Create a prompt to evaluate the solution
       const prompt = `
         Evaluate the following solution for a problem:
 
@@ -148,36 +193,37 @@ class OpenAIAssistantProvider extends BaseModel {
           "score": [score between 0 and 10],
           "evaluation": "[detailed evaluation in Markdown format]"
         }
-          
+
         ${evaluationPrompt || ''}`;
 
-      // Make a request to evaluate the solution
-      const response = await this.openai.chat.completions.create({
-        model: process.env.OPENAI_EVALUATION_MODEL || "gpt-5.4-mini",
-        messages: [
+      const response = await this.openai.responses.parse({
+        model: this.evaluationModel,
+        input: [
           {
-            role: "system",
-            content: "You are an expert evaluator. Your task is to evaluate solutions to problems and provide detailed feedback."
+            role: 'system',
+            content:
+              'You are an expert evaluator. Your task is to evaluate solutions to problems and provide detailed feedback.',
           },
           {
-            role: "user",
-            content: prompt
-          }
+            role: 'user',
+            content: prompt,
+          },
         ],
-        response_format: { type: "json_object" }
+        text: {
+          format: zodTextFormat(EvaluationSchema, 'evaluation_result'),
+        },
       });
 
-      // Extract the content from the response
-      const messageContent = response.choices[0].message.content;
+      if (!response.output_parsed) {
+        throw new Error('OpenAI no devolvio una evaluacion estructurada');
+      }
 
-      // Parse the JSON response
-      const evaluationResult = JSON.parse(messageContent);
-      return evaluationResult;
+      return response.output_parsed;
     } catch (error) {
-      console.error("Error enviando a OpenAI: " + error)
+      console.error('Error enviando a OpenAI:', error);
       throw error;
     }
   }
 }
 
-module.exports = new OpenAIAssistantProvider(); 
+module.exports = new OpenAIAssistantProvider();
