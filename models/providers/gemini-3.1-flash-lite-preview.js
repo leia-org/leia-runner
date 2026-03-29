@@ -9,19 +9,10 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
   constructor() {
     super();
     this.name = 'gemini-3.1-flash-lite-preview';
+    this.apiKeyEnvVar = 'GEMINI_API_KEY';
     this.model = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite-preview';
     this.evaluationModel = process.env.GEMINI_EVALUATION_MODEL || this.model;
     this.client = null;
-  }
-
-  get apiKey() {
-    return process.env.GEMINI_API_KEY;
-  }
-
-  ensureApiKey() {
-    if (!this.apiKey) {
-      throw new Error('GEMINI_API_KEY is not configured');
-    }
   }
 
   getClient() {
@@ -33,7 +24,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
 
     try {
       const { GoogleGenAI } = require('@google/genai');
-      this.client = new GoogleGenAI({ apiKey: this.apiKey });
+      this.client = new GoogleGenAI({ apiKey: this.getApiKey() });
       return this.client;
     } catch (error) {
       throw new Error(`No se pudo cargar @google/genai. Asegúrate de usar Node 20+ y tener la dependencia instalada. Detalle: ${error.message}`);

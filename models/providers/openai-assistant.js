@@ -17,17 +17,12 @@ class OpenAIAssistantProvider extends BaseModel {
   constructor() {
     super();
     this.name = 'openai-assistant';
+    this.apiKeyEnvVar = 'OPENAI_API_KEY';
     this.model = 'gpt-5.4-mini';
     this.evaluationModel = process.env.OPENAI_EVALUATION_MODEL || 'gpt-5.4-mini';
     this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
+      apiKey: this.getApiKey(),
     });
-  }
-
-  ensureApiKey() {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY is not configured');
-    }
   }
 
   getDefaultInstructions() {

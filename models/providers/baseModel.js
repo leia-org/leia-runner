@@ -2,6 +2,38 @@
 class BaseModel {
   constructor() {
     this.name = 'base';
+    this.apiKeyEnvVar = '';
+  }
+
+  /**
+   * Nombre de la variable de entorno con el API key.
+   * Debe definirse en cada proveedor concreto.
+   */
+
+  /**
+   * Obtiene el API key del proveedor desde la variable de entorno.
+   * @returns {string|undefined}
+   */
+  getApiKey() {
+    return process.env[this.apiKeyEnvVar];
+  }
+
+  /**
+   * Valida que el API key esté configurado.
+   * @returns {string}
+   */
+  ensureApiKey() {
+    if (!this.apiKeyEnvVar) {
+      throw new Error('apiKeyEnvVar is not configured for this provider');
+    }
+
+    const apiKey = this.getApiKey();
+
+    if (!apiKey) {
+      throw new Error(`${this.apiKeyEnvVar} is not configured`);
+    }
+
+    return apiKey;
   }
 
   /**
