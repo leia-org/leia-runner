@@ -6,11 +6,6 @@ class BaseModel {
   }
 
   /**
-   * Nombre de la variable de entorno con el API key.
-   * Debe definirse en cada proveedor concreto.
-   */
-
-  /**
    * Obtiene el API key del proveedor desde la variable de entorno.
    * @returns {string|undefined}
    */
