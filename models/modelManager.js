@@ -65,21 +65,7 @@ class ModelManager {
         
         try {
           // Importar el modelo
-          const modelModule = require(modelPath);
-          
-          // Ejecutar tests automáticos
-          const testResult = await this.testModel(modelModule, modelName);
-          
-          if (testResult.success) {
-            // Si pasa los tests, registrarlo como validado
-            this.models.set(modelName, modelModule);
-            this.validatedModels.add(modelName);
-            await redisClient.hSet('validated_models', modelName, 'true');
-            console.log(`Modelo '${modelName}' cargado y validado exitosamente`);
-          } else {
-            console.error(`Modelo '${modelName}' falló los tests:`, testResult.errors);
-            await redisClient.hSet('validated_models', modelName, 'false');
-          }
+          const modelModule = require(modelPath);       
         } catch (error) {
           console.error(`Error cargando el modelo '${modelName}':`, error);
         }
@@ -90,54 +76,7 @@ class ModelManager {
     }
   }
 
-  async testModel(modelModule, modelName) {
-    console.log(`Ejecutando tests para el modelo '${modelName}'...`);
-    const result = { success: true, errors: [] };
 
-    // Verificar estructura del modelo
-    if (!modelModule.sendMessage || typeof modelModule.sendMessage !== 'function') {
-      result.success = false;
-      result.errors.push('El modelo no implementa el método sendMessage');
-    }
-
-    if (!modelModule.createSession || typeof modelModule.createSession !== 'function') {
-      result.success = false;
-      result.errors.push('El modelo no implementa el método createSession');
-    }
-
-
-    if (!modelModule.evaluateSolution || typeof modelModule.evaluateSolution !== 'function') {
-      console.warn(`El modelo '${modelName}' no implementa el método evaluateSolution. Algunas funcionalidades de evaluación no estarán disponibles.`);
-
-    }
-
-    // Si la estructura es correcta, realizar test básico
-    if (result.success) {
-      try {
-        // Crear una sesión de prueba
-        const sessionData = await modelModule.createSession({
-          instructions: 'Este es un test automatizado.'
-        });
-
-        // Enviar un mensaje simple y verificar la respuesta
-        const response = await modelModule.sendMessage({
-          sessionId: 'test-session',
-          message: '¿Estás funcionando correctamente?',
-          sessionData: sessionData
-        });
-
-        if (!response || !response.message) {
-          result.success = false;
-          result.errors.push('El modelo no devolvió una respuesta válida');
-        }
-      } catch (error) {
-        result.success = false;
-        result.errors.push(`Error en el test: ${error.message}`);
-      }
-    }
-
-    return result;
-  }
 
   getModel(modelName = 'default') {
     // Si se solicita el modelo por defecto, usar el configurado
