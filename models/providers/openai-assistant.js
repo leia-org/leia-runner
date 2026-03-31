@@ -3,6 +3,7 @@ const { OpenAI } = require('openai');
 const z = require('zod');
 const { zodTextFormat } = require('openai/helpers/zod');
 const BaseModel = require('./baseModel');
+const Errors = require('../../utils/errors');
 
 const EvaluationSchema = z.object({
   score: z.number().min(0).max(10),
@@ -20,13 +21,7 @@ class OpenAIAssistantProvider extends BaseModel {
     this.apiKeyEnvVar = 'OPENAI_API_KEY';
     this.model = 'gpt-5.4-mini';
     this.evaluationModel = process.env.OPENAI_EVALUATION_MODEL || 'gpt-5.4-mini';
-    this.openai = new OpenAI({
-      apiKey: this.getApiKey(),
-    });
-  }
-
-  getDefaultInstructions() {
-    return 'Eres un asistente util';
+    this.openai = new OpenAI({ apiKey: this.getApiKey() });
   }
 
   getProviderState(sessionData = {}) {
@@ -39,8 +34,12 @@ class OpenAIAssistantProvider extends BaseModel {
     const conversationId =
       providerState.conversationId || (threadId.startsWith('conv_') ? threadId : '');
 
+    if (!providerState.systemInstruction) {
+      throw Errors.missingInstruction();
+    }
+
     return {
-      systemInstruction: providerState.systemInstruction || this.getDefaultInstructions(),
+      systemInstruction: providerState.systemInstruction,
       conversationId,
       lastResponseId: providerState.lastResponseId || '',
     };
@@ -52,7 +51,7 @@ class OpenAIAssistantProvider extends BaseModel {
     const conversation = await this.openai.post('/conversations', { body: {} });
 
     if (!conversation?.id) {
-      throw new Error('OpenAI no devolvio un identificador de conversacion');
+      throw Errors.openaiNoConversationId();
     }
 
     return conversation;
@@ -90,18 +89,20 @@ class OpenAIAssistantProvider extends BaseModel {
 
   async createSession(options) {
     const { instructions } = options;
-    const systemInstruction = instructions || this.getDefaultInstructions();
+
+    if (!instructions) {
+      throw Errors.missingInstructionOnCreate();
+    }
 
     try {
       const conversation = await this.createConversation();
 
       return this.buildSessionData({
         conversationId: conversation.id,
-        systemInstruction,
+        systemInstruction: instructions,
       });
     } catch (error) {
-      console.error('Error al crear sesion con OpenAI Conversations:', error);
-      throw error;
+      throw Errors.sessionCreationError(error);
     }
   }
 
@@ -137,13 +138,13 @@ class OpenAIAssistantProvider extends BaseModel {
       });
 
       if (response?.error) {
-        throw new Error(response.error.message || 'OpenAI devolvio un error al generar la respuesta');
+        throw Errors.openaiResponseError(response.error.message);
       }
 
       const responseMessage = this.extractResponseText(response);
 
       if (!responseMessage) {
-        throw new Error('OpenAI no devolvio contenido de texto');
+        throw Errors.openaiNoTextContent();
       }
 
       return {
@@ -155,8 +156,7 @@ class OpenAIAssistantProvider extends BaseModel {
         }),
       };
     } catch (error) {
-      console.error('Error enviando mensaje a OpenAI Conversations:', error);
-      throw error;
+      throw Errors.messageSendError(error);
     }
   }
 
@@ -210,13 +210,12 @@ class OpenAIAssistantProvider extends BaseModel {
       });
 
       if (!response.output_parsed) {
-        throw new Error('OpenAI no devolvio una evaluacion estructurada');
+        throw Errors.openaiNoEvaluation();
       }
 
       return response.output_parsed;
     } catch (error) {
-      console.error('Error enviando a OpenAI:', error);
-      throw error;
+      throw Errors.evaluationError(error);
     }
   }
 }
