@@ -29,18 +29,6 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     };
   }
 
-  async createSession(options) {
-    const { instructions } = options;
-
-    return {
-      threadId: '',
-      providerState: {
-        systemInstruction: instructions || 'Eres un asistente útil',
-        previousInteractionId: ''
-      }
-    };
-  }
-
   async sendMessage(options) {
     const { message, sessionData } = options;
     const providerState = this.getProviderState(sessionData);

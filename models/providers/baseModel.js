@@ -7,6 +7,9 @@ class BaseModel {
     this.client = null;
   }
 
+
+  // Validation
+
   /**
    * Obtiene el API key del proveedor desde la variable de entorno.
    * @returns {string|undefined}
@@ -48,13 +51,14 @@ class BaseModel {
   }
 
 
+  // To be implemented by each provider
+
   /**
    * Define el threadId para la sesión. Este método debe ser implementado por cada proveedor para determinar cómo manejar el contexto de la conversación.
-   * @returns {string} El threadId a usar para la sesión
-   * @throws {Error} Si el método no es implementado por la subclase
+   * @returns {string} El threadId a usar para la sesión, o un string vacío si el proveedor no utiliza threadId. 
    */
-  setThreadId() {
-    throw new Error('Method setThreadId must be implemented by subclasses');
+  async setThreadId() {
+    return '';
   }
 
   /**
@@ -62,9 +66,11 @@ class BaseModel {
    * @returns {Object} El providerState inicial para la sesión
    * @throws {Error} Si el método no es implementado por la subclase
    */
-  getProviderState() {
-    throw new Error('Method buildProviderState must be implemented by subclasses');
+  getProviderState(sessionData = {}) {
+    throw new Error('Method getProviderState must be implemented by subclasses');
   }
+
+  // Methods implemented by all providers but can be overwritten if needed
 
   /**
    * Crea una nueva sesión
@@ -79,6 +85,7 @@ class BaseModel {
       throw Errors.baseModel.missingInstructionOnCreate();
     }
 
+    const threadId = await this.setThreadId();
     const initialSessionData = {
       threadId: '',
       providerState: {
@@ -87,7 +94,7 @@ class BaseModel {
     };
 
     return {
-      threadId: (await this.setThreadId()) || '',
+      threadId: threadId,
       providerState: this.getProviderState(initialSessionData)
     };
   }
