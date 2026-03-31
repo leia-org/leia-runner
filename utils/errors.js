@@ -1,22 +1,24 @@
 const createError = require('http-errors');
 
-const Errors = {
+const BaseModelErrors = {
   missingInstruction: () =>
     createError(400, 'systemInstruction es requerida en providerState'),
 
   missingInstructionOnCreate: () =>
     createError(400, 'instructions es requerida para crear una sesion'),
+};
 
-  openaiNoConversationId: () =>
+const OpenAIErrors = {
+  noConversationId: () =>
     createError(500, 'OpenAI no devolvio un identificador de conversacion'),
 
-  openaiNoTextContent: () =>
+  noTextContent: () =>
     createError(500, 'OpenAI no devolvio contenido de texto'),
 
-  openaiNoEvaluation: () =>
+  noEvaluation: () =>
     createError(500, 'OpenAI no devolvio una evaluacion estructurada'),
 
-  openaiResponseError: (message) =>
+  responseError: (message) =>
     createError(500, message || 'OpenAI devolvio un error al generar la respuesta'),
 
   sessionCreationError: (originalError) => {
@@ -35,4 +37,34 @@ const Errors = {
   },
 };
 
-module.exports = Errors;
+const GeminiErrors = {
+  clientLoadError: (originalError) =>
+    createError(
+      500,
+      `No se pudo cargar @google/genai. Asegurate de usar Node 20+ y tener la dependencia instalada. Detalle: ${originalError.message}`
+    ),
+
+  noTextContent: () => createError(500, 'Gemini no devolvio contenido de texto'),
+
+  noEvaluationContent: () =>
+    createError(500, 'Gemini no devolvio contenido para la evaluacion'),
+
+  interactionStatusError: (status) =>
+    createError(500, `La interaccion de Gemini termino con estado: ${status}`),
+
+  messageSendError: (originalError) => {
+    console.error('Error enviando mensaje a Gemini:', originalError);
+    return createError(500, 'Error enviando mensaje a Gemini');
+  },
+
+  evaluationError: (originalError) => {
+    console.error('Error evaluando solucion con Gemini:', originalError);
+    return createError(500, 'Error evaluando solucion con Gemini');
+  },
+};
+
+module.exports = {
+  baseModel: BaseModelErrors,
+  openai: OpenAIErrors,
+  gemini: GeminiErrors,
+};

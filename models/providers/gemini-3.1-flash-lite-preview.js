@@ -1,5 +1,6 @@
 require('dotenv').config();
 const BaseModel = require('./baseModel');
+const { gemini: GeminiErrors } = require('../../utils/errors');
 
 /**
  * Proveedor de modelo basado en Gemini Interactions API.
@@ -27,7 +28,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
       this.client = new GoogleGenAI({ apiKey: this.getApiKey() });
       return this.client;
     } catch (error) {
-      throw new Error(`No se pudo cargar @google/genai. Asegúrate de usar Node 20+ y tener la dependencia instalada. Detalle: ${error.message}`);
+      throw GeminiErrors.clientLoadError(error);
     }
   }
 
@@ -70,7 +71,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
       const responseMessage = this.extractTextFromInteraction(interaction);
 
       if (!responseMessage) {
-        throw new Error('Gemini no devolvió contenido de texto');
+        throw GeminiErrors.noTextContent();
       }
 
       return {
@@ -84,8 +85,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
         }
       };
     } catch (error) {
-      console.error('Error enviando mensaje a Gemini:', error);
-      throw error;
+      throw GeminiErrors.messageSendError(error);
     }
   }
 
@@ -106,13 +106,12 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
       const responseText = this.extractTextFromInteraction(interaction);
 
       if (!responseText) {
-        throw new Error('Gemini no devolvió contenido para la evaluación');
+        throw GeminiErrors.noEvaluationContent();
       }
 
       return JSON.parse(this.sanitizeJsonResponse(responseText));
     } catch (error) {
-      console.error('Error evaluando solución con Gemini:', error);
-      throw error;
+      throw GeminiErrors.evaluationError(error);
     }
   }
 
@@ -173,7 +172,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     const interaction = await this.getClient().interactions.create(requestBody);
 
     if (interaction.status && interaction.status !== 'completed') {
-      throw new Error(`La interacción de Gemini terminó con estado: ${interaction.status}`);
+      throw GeminiErrors.interactionStatusError(interaction.status);
     }
 
     return interaction;

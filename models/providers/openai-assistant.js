@@ -3,7 +3,7 @@ const { OpenAI } = require('openai');
 const z = require('zod');
 const { zodTextFormat } = require('openai/helpers/zod');
 const BaseModel = require('./baseModel');
-const Errors = require('../../utils/errors');
+const { baseModel: BaseModelErrors, openai: OpenAIErrors } = require('../../utils/errors');
 
 const EvaluationSchema = z.object({
   score: z.number().min(0).max(10),
@@ -35,7 +35,7 @@ class OpenAIAssistantProvider extends BaseModel {
       providerState.conversationId || (threadId.startsWith('conv_') ? threadId : '');
 
     if (!providerState.systemInstruction) {
-      throw Errors.missingInstruction();
+      throw BaseModelErrors.missingInstruction();
     }
 
     return {
@@ -51,7 +51,7 @@ class OpenAIAssistantProvider extends BaseModel {
     const conversation = await this.openai.post('/conversations', { body: {} });
 
     if (!conversation?.id) {
-      throw Errors.openaiNoConversationId();
+      throw OpenAIErrors.noConversationId();
     }
 
     return conversation;
@@ -91,7 +91,7 @@ class OpenAIAssistantProvider extends BaseModel {
     const { instructions } = options;
 
     if (!instructions) {
-      throw Errors.missingInstructionOnCreate();
+      throw BaseModelErrors.missingInstructionOnCreate();
     }
 
     try {
@@ -102,7 +102,7 @@ class OpenAIAssistantProvider extends BaseModel {
         systemInstruction: instructions,
       });
     } catch (error) {
-      throw Errors.sessionCreationError(error);
+      throw OpenAIErrors.sessionCreationError(error);
     }
   }
 
@@ -138,13 +138,13 @@ class OpenAIAssistantProvider extends BaseModel {
       });
 
       if (response?.error) {
-        throw Errors.openaiResponseError(response.error.message);
+        throw OpenAIErrors.responseError(response.error.message);
       }
 
       const responseMessage = this.extractResponseText(response);
 
       if (!responseMessage) {
-        throw Errors.openaiNoTextContent();
+        throw OpenAIErrors.noTextContent();
       }
 
       return {
@@ -156,7 +156,7 @@ class OpenAIAssistantProvider extends BaseModel {
         }),
       };
     } catch (error) {
-      throw Errors.messageSendError(error);
+      throw OpenAIErrors.messageSendError(error);
     }
   }
 
@@ -186,12 +186,12 @@ class OpenAIAssistantProvider extends BaseModel {
       });
 
       if (!response.output_parsed) {
-        throw Errors.openaiNoEvaluation();
+        throw OpenAIErrors.noEvaluation();
       }
 
       return response.output_parsed;
     } catch (error) {
-      throw Errors.evaluationError(error);
+      throw OpenAIErrors.evaluationError(error);
     }
   }
 }
