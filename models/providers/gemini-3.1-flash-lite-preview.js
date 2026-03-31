@@ -33,7 +33,6 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     const { instructions } = options;
 
     return {
-      assistantId: '',
       threadId: '',
       providerState: {
         systemInstruction: instructions || 'Eres un asistente útil',

@@ -22,7 +22,17 @@ class OpenAIAssistantProvider extends BaseModel {
     this.apiKeyEnvVar = 'OPENAI_API_KEY';
     this.model = 'gpt-5.4-mini';
     this.evaluationModel = process.env.OPENAI_EVALUATION_MODEL || 'gpt-5.4-mini';
-    this.getClient() = new OpenAI({ apiKey: this.getApiKey() });
+    this.client = new OpenAI({ apiKey: this.getApiKey() });
+  }
+
+  async setThreadId() {
+    try {
+      const conversation = await this.createConversation();
+      
+      return conversation.id;
+    } catch (error) {
+      throw Errors.openAI.sessionCreationError(error);
+    }
   }
 
   getProviderState(sessionData = {}) {
@@ -76,37 +86,6 @@ class OpenAIAssistantProvider extends BaseModel {
       .join('\n\n');
   }
 
-  buildSessionData({ conversationId, systemInstruction, lastResponseId = '' }) {
-    return {
-      assistantId: '',
-      threadId: conversationId,
-      providerState: {
-        conversationId,
-        systemInstruction,
-        lastResponseId,
-      },
-    };
-  }
-
-  async createSession(options) {
-    const { instructions } = options;
-
-    if (!instructions) {
-      throw Errors.baseModel.missingInstructionOnCreate();
-    }
-
-    try {
-      const conversation = await this.createConversation();
-
-      return this.buildSessionData({
-        conversationId: conversation.id,
-        systemInstruction: instructions,
-      });
-    } catch (error) {
-      throw Errors.openAI.sessionCreationError(error);
-    }
-  }
-
   async sendMessage(options) {
     const { message, sessionData } = options;
     const providerState = this.getProviderState(sessionData);
@@ -115,7 +94,7 @@ class OpenAIAssistantProvider extends BaseModel {
       let conversationId = providerState.conversationId;
 
       if (!conversationId) {
-        if (sessionData?.assistantId || sessionData?.threadId) {
+        if (sessionData?.threadId) {
           console.warn(
             'Sesion legacy de Assistants detectada. Se iniciara una nueva conversacion sin historial previo.'
           );
@@ -150,11 +129,14 @@ class OpenAIAssistantProvider extends BaseModel {
 
       return {
         message: responseMessage,
-        sessionData: this.buildSessionData({
-          conversationId,
-          systemInstruction: providerState.systemInstruction,
-          lastResponseId: response.id || providerState.lastResponseId,
-        }),
+        sessionData: {
+          threadId: conversationId,
+          providerState: {
+            conversationId,
+            systemInstruction: providerState.systemInstruction,
+            lastResponseId: response.id || providerState.lastResponseId,
+          },
+        },
       };
     } catch (error) {
       throw Errors.openAI.messageSendError(error);

@@ -47,15 +47,51 @@ class BaseModel {
     }
   }
 
+
+  /**
+   * Define el threadId para la sesión. Este método debe ser implementado por cada proveedor para determinar cómo manejar el contexto de la conversación.
+   * @returns {string} El threadId a usar para la sesión
+   * @throws {Error} Si el método no es implementado por la subclase
+   */
+  setThreadId() {
+    throw new Error('Method setThreadId must be implemented by subclasses');
+  }
+
+  /**
+   * Construye el providerState inicial para una nueva sesión. Este método puede ser sobrescrito por cada proveedor para definir qué información se necesita almacenar en el providerState desde el inicio de la sesión.
+   * @returns {Object} El providerState inicial para la sesión
+   * @throws {Error} Si el método no es implementado por la subclase
+   */
+  getProviderState() {
+    throw new Error('Method buildProviderState must be implemented by subclasses');
+  }
+
   /**
    * Crea una nueva sesión
    * @param {Object} options - Opciones para crear la sesión
    * @returns {Promise<Object>} - Datos de la sesión creada
    */
   async createSession(options) {
-    throw new Error('Method createSession must be implemented by subclasses');
-  }
+    // TODO: Pasar de options -> instructions.
+    const { instructions } = options;
 
+    if (!instructions) {
+      throw Errors.baseModel.missingInstructionOnCreate();
+    }
+
+    const initialSessionData = {
+      threadId: '',
+      providerState: {
+        systemInstruction: instructions
+      }
+    };
+
+    return {
+      threadId: (await this.setThreadId()) || '',
+      providerState: this.getProviderState(initialSessionData)
+    };
+  }
+    
   /**
    * Envía un mensaje a la sesión
    * @param {Object} options - Opciones para enviar el mensaje
