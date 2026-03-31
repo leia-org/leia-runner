@@ -22,7 +22,7 @@ class OpenAIAssistantProvider extends BaseModel {
     this.apiKeyEnvVar = 'OPENAI_API_KEY';
     this.model = 'gpt-5.4-mini';
     this.evaluationModel = process.env.OPENAI_EVALUATION_MODEL || 'gpt-5.4-mini';
-    this.openai = new OpenAI({ apiKey: this.getApiKey() });
+    this.getClient() = new OpenAI({ apiKey: this.getApiKey() });
   }
 
   getProviderState(sessionData = {}) {
@@ -49,7 +49,7 @@ class OpenAIAssistantProvider extends BaseModel {
   async createConversation() {
     this.ensureApiKey();
 
-    const conversation = await this.openai.post('/conversations', { body: {} });
+    const conversation = await this.getClient().post('/conversations', { body: {} });
 
     if (!conversation?.id) {
       throw Errors.openAI.noConversationId();
@@ -125,7 +125,7 @@ class OpenAIAssistantProvider extends BaseModel {
         conversationId = conversation.id;
       }
 
-      const response = await this.openai.responses.create({
+      const response = await this.getClient().responses.create({
         model: this.model,
         conversation: conversationId,
         instructions: providerState.systemInstruction,
@@ -168,7 +168,7 @@ class OpenAIAssistantProvider extends BaseModel {
     try {
       const prompt = Prompts.evaluation(solution, result, solutionFormat, evaluationPrompt);
 
-      const response = await this.openai.responses.parse({
+      const response = await this.getClient().responses.parse({
         model: this.evaluationModel,
         input: [
           {

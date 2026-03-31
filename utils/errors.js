@@ -6,6 +6,9 @@ const baseModel = {
 
   missingInstructionOnCreate: () =>
     createError(400, 'instructions es requerida para crear una sesion'),
+
+  clientNotLoaded: () =>
+    createError(500, 'El cliente del proveedor no está cargado'),
 };
 
 const openAI = {
@@ -38,11 +41,6 @@ const openAI = {
 };
 
 const gemini = {
-  clientLoadError: (originalError) =>
-    createError(
-      500,
-      `No se pudo cargar @google/genai. Asegurate de usar Node 20+ y tener la dependencia instalada. Detalle: ${originalError.message}`
-    ),
 
   noTextContent: () => createError(500, 'Gemini no devolvio contenido de texto'),
 

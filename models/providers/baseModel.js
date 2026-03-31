@@ -1,8 +1,10 @@
+const Errors = require('../../utils/errors');
 
 class BaseModel {
   constructor() {
     this.name = 'base';
     this.apiKeyEnvVar = '';
+    this.client = null;
   }
 
   /**
@@ -29,6 +31,20 @@ class BaseModel {
     }
 
     return apiKey;
+  }
+
+  /**
+   * Obtiene el cliente del proveedor.
+   * @returns {Object} Cliente del proveedor
+   * @throws {Error} Si no se pudo cargar el cliente
+   */
+  getClient() {
+    this.ensureApiKey();
+    if (this.client) {
+      return this.client;
+    } else {
+      throw Errors.baseModel.clientNotLoaded();
+    }
   }
 
   /**

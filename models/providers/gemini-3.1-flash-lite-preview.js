@@ -2,6 +2,7 @@ require('dotenv').config();
 const BaseModel = require('./baseModel');
 const Errors = require('../../utils/errors');
 const Prompts = require('../../utils/prompts');
+const { GoogleGenAI } = require('@google/genai');
 
 /**
  * Proveedor de modelo basado en Gemini Interactions API.
@@ -14,23 +15,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     this.apiKeyEnvVar = 'GEMINI_API_KEY';
     this.model = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite-preview';
     this.evaluationModel = process.env.GEMINI_EVALUATION_MODEL || this.model;
-    this.client = null;
-  }
-
-  getClient() {
-    this.ensureApiKey();
-
-    if (this.client) {
-      return this.client;
-    }
-
-    try {
-      const { GoogleGenAI } = require('@google/genai');
-      this.client = new GoogleGenAI({ apiKey: this.getApiKey() });
-      return this.client;
-    } catch (error) {
-      throw Errors.gemini.clientLoadError(error);
-    }
+    this.client = new GoogleGenAI({ apiKey: this.getApiKey() });
   }
 
   getProviderState(sessionData = {}) {
