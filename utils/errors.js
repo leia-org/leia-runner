@@ -1,6 +1,6 @@
 const createError = require('http-errors');
 
-const BaseModelErrors = {
+const baseModel = {
   missingInstruction: () =>
     createError(400, 'systemInstruction es requerida en providerState'),
 
@@ -8,7 +8,7 @@ const BaseModelErrors = {
     createError(400, 'instructions es requerida para crear una sesion'),
 };
 
-const OpenAIErrors = {
+const openAI = {
   noConversationId: () =>
     createError(500, 'OpenAI no devolvio un identificador de conversacion'),
 
@@ -37,7 +37,7 @@ const OpenAIErrors = {
   },
 };
 
-const GeminiErrors = {
+const gemini = {
   clientLoadError: (originalError) =>
     createError(
       500,
@@ -63,8 +63,10 @@ const GeminiErrors = {
   },
 };
 
-module.exports = {
-  baseModel: BaseModelErrors,
-  openai: OpenAIErrors,
-  gemini: GeminiErrors,
+const Errors = {
+  baseModel,
+  openAI,
+  gemini,
 };
+
+module.exports = Errors;

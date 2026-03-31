@@ -1,6 +1,7 @@
 require('dotenv').config();
 const BaseModel = require('./baseModel');
-const { gemini: GeminiErrors } = require('../../utils/errors');
+const Errors = require('../../utils/errors');
+const Prompts = require('../../utils/prompts');
 
 /**
  * Proveedor de modelo basado en Gemini Interactions API.
@@ -28,7 +29,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
       this.client = new GoogleGenAI({ apiKey: this.getApiKey() });
       return this.client;
     } catch (error) {
-      throw GeminiErrors.clientLoadError(error);
+      throw Errors.gemini.clientLoadError(error);
     }
   }
 
@@ -71,7 +72,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
       const responseMessage = this.extractTextFromInteraction(interaction);
 
       if (!responseMessage) {
-        throw GeminiErrors.noTextContent();
+        throw Errors.gemini.noTextContent();
       }
 
       return {
@@ -85,7 +86,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
         }
       };
     } catch (error) {
-      throw GeminiErrors.messageSendError(error);
+      throw Errors.gemini.messageSendError(error);
     }
   }
 
@@ -106,12 +107,12 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
       const responseText = this.extractTextFromInteraction(interaction);
 
       if (!responseText) {
-        throw GeminiErrors.noEvaluationContent();
+        throw Errors.gemini.noEvaluationContent();
       }
 
       return JSON.parse(this.sanitizeJsonResponse(responseText));
     } catch (error) {
-      throw GeminiErrors.evaluationError(error);
+      throw Errors.gemini.evaluationError(error);
     }
   }
 
@@ -172,7 +173,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     const interaction = await this.getClient().interactions.create(requestBody);
 
     if (interaction.status && interaction.status !== 'completed') {
-      throw GeminiErrors.interactionStatusError(interaction.status);
+      throw Errors.gemini.interactionStatusError(interaction.status);
     }
 
     return interaction;
