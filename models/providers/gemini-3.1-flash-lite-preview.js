@@ -24,7 +24,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
       : {};
 
     return {
-      systemInstruction: providerState.systemInstruction || 'Eres un asistente útil',
+      systemInstruction: providerState.systemInstruction,
       previousInteractionId: providerState.previousInteractionId || sessionData.threadId || ''
     };
   }
@@ -62,30 +62,27 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     }
   }
 
-  async evaluateSolution(options) {
-    const { leiaMeta, result } = options;
-    const { solution, solutionFormat, evaluationPrompt } = leiaMeta;
+  /**
+   * Realiza la llamada al API de Gemini y devuelve la evaluación estructurada.
+   * Invocado por BaseModel.evaluateSolution.
+   * @param {string} prompt - Prompt de evaluación ya construido
+   * @returns {Promise<Object>} - { score, evaluation }
+   */
+  async generateEvaluationResponse(prompt) {
+    const interaction = await this.createInteraction({
+      model: this.evaluationModel,
+      input: prompt,
+      systemInstruction: 'You are an expert evaluator. Your task is to evaluate solutions to problems and provide detailed feedback.',
+      responseFormat: this.getEvaluationResponseFormat()
+    });
 
-    try {
-      const prompt = Prompts.evaluation(solution, result, solutionFormat, evaluationPrompt);
+    const responseText = this.extractTextFromInteraction(interaction);
 
-      const interaction = await this.createInteraction({
-        model: this.evaluationModel,
-        input: prompt,
-        systemInstruction: 'You are an expert evaluator. Your task is to evaluate solutions to problems and provide detailed feedback.',
-        responseFormat: this.getEvaluationResponseFormat()
-      });
-
-      const responseText = this.extractTextFromInteraction(interaction);
-
-      if (!responseText) {
-        throw Errors.gemini.noEvaluationContent();
-      }
-
-      return JSON.parse(this.sanitizeJsonResponse(responseText));
-    } catch (error) {
-      throw Errors.gemini.evaluationError(error);
+    if (!responseText) {
+      throw Errors.gemini.noEvaluationContent();
     }
+
+    return JSON.parse(this.sanitizeJsonResponse(responseText));
   }
 
   getEvaluationResponseFormat() {

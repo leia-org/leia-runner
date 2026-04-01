@@ -9,6 +9,11 @@ const baseModel = {
 
   clientNotLoaded: () =>
     createError(500, 'El cliente del proveedor no está cargado'),
+
+  evaluationError: (originalError) => {
+    console.error('Error durante la evaluación de la solución:', originalError);
+    return createError(500, 'Error evaluando la solución');
+  }
 };
 
 const openAI = {
@@ -33,11 +38,6 @@ const openAI = {
     console.error('Error enviando mensaje a OpenAI Conversations:', originalError);
     return createError(500, 'Error enviando mensaje');
   },
-
-  evaluationError: (originalError) => {
-    console.error('Error enviando a OpenAI:', originalError);
-    return createError(500, 'Error evaluando solucion');
-  },
 };
 
 const gemini = {
@@ -53,11 +53,6 @@ const gemini = {
   messageSendError: (originalError) => {
     console.error('Error enviando mensaje a Gemini:', originalError);
     return createError(500, 'Error enviando mensaje a Gemini');
-  },
-
-  evaluationError: (originalError) => {
-    console.error('Error evaluando solucion con Gemini:', originalError);
-    return createError(500, 'Error evaluando solucion con Gemini');
   },
 };
 

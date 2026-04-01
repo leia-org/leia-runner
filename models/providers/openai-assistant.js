@@ -3,7 +3,6 @@ const { OpenAI } = require('openai');
 const z = require('zod');
 const { zodTextFormat } = require('openai/helpers/zod');
 const BaseModel = require('./baseModel');
-const Prompts = require('../../utils/prompts');
 const Errors = require('../../utils/errors');
 
 const EvaluationSchema = z.object({
@@ -143,39 +142,36 @@ class OpenAIAssistantProvider extends BaseModel {
     }
   }
 
-  async evaluateSolution(options) {
-    const { leiaMeta, result } = options;
-    const { solution, solutionFormat, evaluationPrompt } = leiaMeta;
-
-    try {
-      const prompt = Prompts.evaluation(solution, result, solutionFormat, evaluationPrompt);
-
-      const response = await this.getClient().responses.parse({
-        model: this.evaluationModel,
-        input: [
-          {
-            role: 'system',
-            content:
-              'You are an expert evaluator. Your task is to evaluate solutions to problems and provide detailed feedback.',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        text: {
-          format: zodTextFormat(EvaluationSchema, 'evaluation_result'),
+  /**
+   * Realiza la llamada al API de OpenAI y devuelve la evaluación estructurada.
+   * Invocado por BaseModel.evaluateSolution.
+   * @param {string} prompt - Prompt de evaluación ya construido
+   * @returns {Promise<Object>} - { score, evaluation }
+   */
+  async generateEvaluationResponse(prompt) {
+    const response = await this.getClient().responses.parse({
+      model: this.evaluationModel,
+      input: [
+        {
+          role: 'system',
+          content:
+            'You are an expert evaluator. Your task is to evaluate solutions to problems and provide detailed feedback.',
         },
-      });
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      text: {
+        format: zodTextFormat(EvaluationSchema, 'evaluation_result'),
+      },
+    });
 
-      if (!response.output_parsed) {
-        throw Errors.openAI.noEvaluation();
-      }
-
-      return response.output_parsed;
-    } catch (error) {
-      throw Errors.openAI.evaluationError(error);
+    if (!response.output_parsed) {
+      throw Errors.openAI.noEvaluation();
     }
+
+    return response.output_parsed;
   }
 }
 

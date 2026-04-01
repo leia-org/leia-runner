@@ -1,4 +1,5 @@
 const Errors = require('../../utils/errors');
+const Prompts = require('../../utils/prompts');
 
 class BaseModel {
   constructor() {
@@ -70,6 +71,15 @@ class BaseModel {
     throw new Error('Method getProviderState must be implemented by subclasses');
   }
 
+  /**
+   * Genera la respuesta de evaluación a partir de la respuesta cruda del modelo. Este método debe ser implementado por cada proveedor para definir cómo se procesa la respuesta del modelo para obtener la evaluación estructurada.
+   * @returns {Object} La evaluación estructurada a partir de la respuesta del modelo
+   * @throws {Error} Si el método no es implementado por la subclase
+   */
+  generateEvaluationResponse() {
+    throw new Error('Method generateEvaluationResponse must be implemented by subclasses');
+  }
+
   // Methods implemented by all providers but can be overwritten if needed
 
   /**
@@ -108,15 +118,28 @@ class BaseModel {
     throw new Error('Method sendMessage must be implemented by subclasses');
   }
 
+
+
   /**
    * Evalúa una solución de estudiante
    * @param {Object} options - Opciones para la evaluación
-   * @param {Object} options.leia - Objeto LEIA con la configuración del problema
+   * @param {Object} options.leiaMeta - Objeto LEIA con la configuración del problema
    * @param {string} options.result - Solución proporcionada por el estudiante
    * @returns {Promise<Object>} - Resultado de la evaluación
    */
   async evaluateSolution(options) {
-    throw new Error('Method evaluateSolution must be implemented by subclasses');
+    const { leiaMeta, result } = options;
+    const { solution, solutionFormat, evaluationPrompt } = leiaMeta;
+
+    try {
+      const prompt = Prompts.evaluation(solution, result, solutionFormat, evaluationPrompt);
+
+      const responseParsed = await this.generateEvaluationResponse(prompt);
+
+      return responseParsed;
+    } catch (error) {
+      throw Errors.baseModel.evaluationError(error);
+    }
   }
 }
 
