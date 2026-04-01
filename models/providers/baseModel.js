@@ -72,7 +72,8 @@ class BaseModel {
   }
 
   /**
-   * Genera la respuesta de evaluación a partir de la respuesta cruda del modelo. Este método debe ser implementado por cada proveedor para definir cómo se procesa la respuesta del modelo para obtener la evaluación estructurada.
+   * Genera la respuesta de evaluación a partir de la respuesta cruda del modelo. 
+   * Este método debe ser implementado por cada proveedor para definir cómo se procesa la respuesta del modelo para obtener la evaluación estructurada.
    * @returns {Object} La evaluación estructurada a partir de la respuesta del modelo
    * @throws {Error} Si el método no es implementado por la subclase
    */
@@ -117,8 +118,6 @@ class BaseModel {
   async sendMessage(options) {
     throw new Error('Method sendMessage must be implemented by subclasses');
   }
-
-
 
   /**
    * Evalúa una solución de estudiante
