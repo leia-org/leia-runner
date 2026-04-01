@@ -21,7 +21,10 @@ class OpenAIAssistantProvider extends BaseModel {
     this.apiKeyEnvVar = 'OPENAI_API_KEY';
     this.model = 'gpt-5.4-mini';
     this.evaluationModel = process.env.OPENAI_EVALUATION_MODEL || 'gpt-5.4-mini';
-    this.client = new OpenAI({ apiKey: this.getApiKey() });
+  }
+
+  createClient(apiKey) {
+    return new OpenAI({ apiKey });
   }
 
   async setThreadId() {
@@ -149,29 +152,33 @@ class OpenAIAssistantProvider extends BaseModel {
    * @returns {Promise<Object>} - { score, evaluation }
    */
   async generateEvaluationResponse(prompt) {
-    const response = await this.getClient().responses.parse({
-      model: this.evaluationModel,
-      input: [
-        {
-          role: 'system',
-          content:
-            'You are an expert evaluator. Your task is to evaluate solutions to problems and provide detailed feedback.',
+    try {
+      const response = await this.getClient().responses.parse({
+        model: this.evaluationModel,
+        input: [
+          {
+            role: 'system',
+            content:
+              'You are an expert evaluator. Your task is to evaluate solutions to problems and provide detailed feedback.',
+          },
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        text: {
+          format: zodTextFormat(EvaluationSchema, 'evaluation_result'),
         },
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-      text: {
-        format: zodTextFormat(EvaluationSchema, 'evaluation_result'),
-      },
-    });
+      });
 
-    if (!response.output_parsed) {
-      throw Errors.openAI.noEvaluation();
+      if (!response.output_parsed) {
+        throw Errors.openAI.noEvaluation();
+      }
+
+      return response.output_parsed;
+    } catch (error) {
+      throw Errors.openAI.evaluationError(error);
     }
-
-    return response.output_parsed;
   }
 }
 

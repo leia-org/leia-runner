@@ -5,7 +5,7 @@ class BaseModel {
   constructor() {
     this.name = 'base';
     this.apiKeyEnvVar = '';
-    this.client = null;
+    this._client = null;
   }
 
 
@@ -38,17 +38,25 @@ class BaseModel {
   }
 
   /**
-   * Obtiene el cliente del proveedor.
+   * Crea el cliente del proveedor. Debe ser implementado por cada subclase.
+   * Solo se invoca una vez, la primera vez que se necesita el cliente.
    * @returns {Object} Cliente del proveedor
-   * @throws {Error} Si no se pudo cargar el cliente
+   */
+  createClient() {
+    throw new Error('Method createClient must be implemented by subclasses');
+  }
+
+  /**
+   * Obtiene el cliente del proveedor (lazy initialization).
+   * @returns {Object} Cliente del proveedor
+   * @throws {Error} Si la API key no está configurada
    */
   getClient() {
-    this.ensureApiKey();
-    if (this.client) {
-      return this.client;
-    } else {
-      throw Errors.baseModel.clientNotLoaded();
+    const apiKey = this.ensureApiKey();
+    if (!this._client) {
+      this._client = this.createClient(apiKey);
     }
+    return this._client;
   }
 
 

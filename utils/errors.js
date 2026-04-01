@@ -2,17 +2,14 @@ const createError = require('http-errors');
 
 const baseModel = {
   missingInstruction: () =>
-    createError(400, 'systemInstruction es requerida en providerState'),
+    createError(500, 'systemInstruction ausente en providerState; posible sesion corrupta'),
 
   missingInstructionOnCreate: () =>
     createError(400, 'instructions es requerida para crear una sesion'),
 
-  clientNotLoaded: () =>
-    createError(500, 'El cliente del proveedor no está cargado'),
-
   evaluationError: (originalError) => {
-    console.error('Error durante la evaluación de la solución:', originalError);
-    return createError(500, 'Error evaluando la solución');
+    console.error('Error durante la evaluacion de la solucion:', originalError);
+    return createError(500, 'Error evaluando la solucion');
   }
 };
 
@@ -38,6 +35,11 @@ const openAI = {
     console.error('Error enviando mensaje a OpenAI Conversations:', originalError);
     return createError(500, 'Error enviando mensaje');
   },
+
+  evaluationError: (originalError) => {
+    console.error('Error evaluando solucion con OpenAI:', originalError);
+    return createError(500, 'Error evaluando la solucion con OpenAI');
+  },
 };
 
 const gemini = {
@@ -62,4 +64,4 @@ const Errors = {
   gemini,
 };
 
-module.exports = Errors;
+module.exports = Errors;

@@ -1,7 +1,6 @@
 require('dotenv').config();
 const BaseModel = require('./baseModel');
 const Errors = require('../../utils/errors');
-const Prompts = require('../../utils/prompts');
 const { GoogleGenAI } = require('@google/genai');
 
 /**
@@ -15,7 +14,10 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     this.apiKeyEnvVar = 'GEMINI_API_KEY';
     this.model = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite-preview';
     this.evaluationModel = process.env.GEMINI_EVALUATION_MODEL || this.model;
-    this.client = new GoogleGenAI({ apiKey: this.getApiKey() });
+  }
+
+  createClient(apiKey) {
+    return new GoogleGenAI({ apiKey });
   }
 
   getProviderState(sessionData = {}) {
