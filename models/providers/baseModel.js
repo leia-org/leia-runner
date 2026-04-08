@@ -37,6 +37,8 @@ class BaseModel {
     return apiKey;
   }
 
+  // To be implemented by each provider
+
   /**
    * Crea el cliente del proveedor. Debe ser implementado por cada subclase.
    * Solo se invoca una vez, la primera vez que se necesita el cliente.
@@ -45,22 +47,6 @@ class BaseModel {
   createClient() {
     throw new Error('Method createClient must be implemented by subclasses');
   }
-
-  /**
-   * Obtiene el cliente del proveedor (lazy initialization).
-   * @returns {Object} Cliente del proveedor
-   * @throws {Error} Si la API key no está configurada
-   */
-  getClient() {
-    const apiKey = this.ensureApiKey();
-    if (!this._client) {
-      this._client = this.createClient(apiKey);
-    }
-    return this._client;
-  }
-
-
-  // To be implemented by each provider
 
   /**
    * Define el threadId para la sesión. Este método debe ser implementado por cada proveedor para determinar cómo manejar el contexto de la conversación.
@@ -91,13 +77,25 @@ class BaseModel {
 
   // Methods implemented by all providers but can be overwritten if needed
 
+   /**
+   * Obtiene el cliente del proveedor (lazy initialization).
+   * @returns {Object} Cliente del proveedor
+   * @throws {Error} Si la API key no está configurada
+   */
+  getClient() {
+    const apiKey = this.ensureApiKey();
+    if (!this._client) {
+      this._client = this.createClient(apiKey);
+    }
+    return this._client;
+  }
+
   /**
    * Crea una nueva sesión
    * @param {Object} options - Opciones para crear la sesión
    * @returns {Promise<Object>} - Datos de la sesión creada
    */
   async createSession(options) {
-    // TODO: Pasar de options -> instructions.
     const { instructions } = options;
 
     if (!instructions) {
