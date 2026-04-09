@@ -86,38 +86,6 @@ class OpenAIAssistantProvider extends BaseModel {
     }
   }
 
-  // Métodos auxiliares
-  
-  async createConversation() {
-    this.ensureApiKey();
-
-    const conversation = await this.getClient().post('/conversations', { body: {} });
-
-    if (!conversation?.id) {
-      throw Errors.openAI.noConversationId();
-    }
-
-    return conversation;
-  }
-
-  extractResponseText(response) {
-    if (typeof response?.output_text === 'string' && response.output_text.trim()) {
-      return response.output_text.trim();
-    }
-
-    if (!Array.isArray(response?.output)) {
-      return '';
-    }
-
-    return response.output
-      .filter((item) => item?.type === 'message' && Array.isArray(item.content))
-      .flatMap((item) => item.content)
-      .filter((content) => content?.type === 'output_text' && typeof content.text === 'string')
-      .map((content) => content.text.trim())
-      .filter(Boolean)
-      .join('\n\n');
-  }
-
   /**
    * Realiza la llamada al API de OpenAI y devuelve la evaluación estructurada.
    * Invocado por BaseModel.evaluateSolution.
@@ -152,6 +120,38 @@ class OpenAIAssistantProvider extends BaseModel {
     } catch (error) {
       throw Errors.openAI.evaluationError(error);
     }
+  }
+
+  // Métodos auxiliares
+  
+  async createConversation() {
+    this.ensureApiKey();
+
+    const conversation = await this.getClient().post('/conversations', { body: {} });
+
+    if (!conversation?.id) {
+      throw Errors.openAI.noConversationId();
+    }
+
+    return conversation;
+  }
+
+  extractResponseText(response) {
+    if (typeof response?.output_text === 'string' && response.output_text.trim()) {
+      return response.output_text.trim();
+    }
+
+    if (!Array.isArray(response?.output)) {
+      return '';
+    }
+
+    return response.output
+      .filter((item) => item?.type === 'message' && Array.isArray(item.content))
+      .flatMap((item) => item.content)
+      .filter((content) => content?.type === 'output_text' && typeof content.text === 'string')
+      .map((content) => content.text.trim())
+      .filter(Boolean)
+      .join('\n\n');
   }
 }
 

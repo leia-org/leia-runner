@@ -18,6 +18,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
   }
 
   // Requerido para el baseModel
+  
   createClient(apiKey) {
     return new GoogleGenAI({ apiKey });
   }
@@ -55,8 +56,6 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     }
   }
 
-  // Métodos auxiliares 
-
   /**
    * Realiza la llamada al API de Gemini y devuelve la evaluación estructurada.
    * Invocado por BaseModel.evaluateSolution.
@@ -79,6 +78,8 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
 
     return JSON.parse(this.sanitizeJsonResponse(responseText));
   }
+
+  // Métodos auxiliares 
 
   getEvaluationResponseFormat() {
     return {

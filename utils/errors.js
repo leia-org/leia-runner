@@ -58,10 +58,32 @@ const gemini = {
   },
 };
 
+const ollama = {
+  missingSessionId: () =>
+    createError(400, 'sessionId es requerido para usar el proveedor Ollama'),
+
+  noTextContent: () =>
+    createError(500, 'Ollama no devolvio contenido de texto'),
+
+  noEvaluationContent: () =>
+    createError(500, 'Ollama no devolvio contenido para la evaluacion'),
+
+  messageSendError: (originalError) => {
+    console.error('Error enviando mensaje a Ollama:', originalError);
+    return createError(500, 'Error enviando mensaje a Ollama');
+  },
+
+  evaluationError: (originalError) => {
+    console.error('Error evaluando solucion con Ollama:', originalError);
+    return createError(500, 'Error evaluando la solucion con Ollama');
+  },
+};
+
 const Errors = {
   baseModel,
   openAI,
   gemini,
+  ollama,
 };
 
-module.exports = Errors;
+module.exports = Errors;
