@@ -198,15 +198,4 @@ class ConversationStore {
   }
 }
 
-/**
- * Singleton instance of ConversationStore pre-configured for generic use
- * @type {ConversationStore}
- */
-const conversationStore = new ConversationStore({
-  prefix: 'session:conversation:',
-  providerName: '',
-  defaultMaxMessages: 60,
-});
-
-module.exports = conversationStore;
 module.exports.ConversationStore = ConversationStore;
