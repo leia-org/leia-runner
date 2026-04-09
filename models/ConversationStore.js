@@ -14,7 +14,7 @@ class ConversationStore {
    * @param {number} options.defaultMaxMessages - Default max messages when not configured (default: 60)
    */
   constructor(options = {}) {
-    this.keyPrefix = options.prefix || 'session:conversation:';
+    this.keyPrefix = options.prefix || 'conversation:';
     this.providerName = options.providerName || '';
     this.defaultMaxMessages = options.defaultMaxMessages || 60;
     this.maxMessages = this.parseMaxMessages();
