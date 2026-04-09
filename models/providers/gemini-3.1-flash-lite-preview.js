@@ -22,8 +22,6 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     return new GoogleGenAI({ apiKey });
   }
 
-  // Métodos auxiliares 
-
   async sendMessage(options) {
     const { message, sessionData } = options;
     const state = new ProviderState(sessionData);
@@ -56,6 +54,8 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
       throw Errors.gemini.messageSendError(error);
     }
   }
+
+  // Métodos auxiliares 
 
   /**
    * Realiza la llamada al API de Gemini y devuelve la evaluación estructurada.
