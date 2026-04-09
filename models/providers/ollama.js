@@ -21,31 +21,6 @@ class OllamaProvider extends BaseModel {
     };
   }
 
-  /**
-   * Creates a new Ollama session
-   * @param {Object} options - Session creation options
-   * @param {string} options.instructions - System instructions for the session
-   * @returns {Promise<Object>} - Session data with threadId and providerState
-   */
-  async createSession(options) {
-    const { instructions } = options;
-
-    if (!instructions) {
-      throw Errors.baseModel.missingInstructionOnCreate();
-    }
-
-    // Ollama doesn't need a persistent thread like OpenAI
-    // We use sessionId as the conversation identifier (stored in ProviderState)
-    const threadId = '';
-
-    return {
-      threadId,
-      providerState: {
-        systemInstruction: instructions,
-      },
-    };
-  }
-
   async sendMessage(options) {
     const { sessionId, message, sessionData } = options;
 
