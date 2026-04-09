@@ -4,6 +4,7 @@ const z = require('zod');
 const { zodTextFormat } = require('openai/helpers/zod');
 const BaseModel = require('./baseModel');
 const Errors = require('../../utils/errors');
+const ProviderState = require('../providerState');
 
 const EvaluationSchema = z.object({
   score: z.number().min(0).max(10),
@@ -23,41 +24,14 @@ class OpenAIAssistantProvider extends BaseModel {
     this.evaluationModel = process.env.OPENAI_EVALUATION_MODEL || 'gpt-5.4-mini';
   }
 
+  // Requerido para el baseModel
+  
   createClient(apiKey) {
     return new OpenAI({ apiKey });
   }
 
-  async setThreadId() {
-    try {
-      const conversation = await this.createConversation();
-      
-      return conversation.id;
-    } catch (error) {
-      throw Errors.openAI.sessionCreationError(error);
-    }
-  }
-
-  getProviderState(sessionData = {}) {
-    const providerState =
-      sessionData.providerState && typeof sessionData.providerState === 'object'
-        ? sessionData.providerState
-        : {};
-
-    const threadId = typeof sessionData.threadId === 'string' ? sessionData.threadId : '';
-    const conversationId =
-      providerState.conversationId || (threadId.startsWith('conv_') ? threadId : '');
-
-    if (!providerState.systemInstruction) {
-      throw Errors.baseModel.missingInstruction();
-    }
-
-    return {
-      systemInstruction: providerState.systemInstruction,
-      conversationId,
-      lastResponseId: providerState.lastResponseId || '',
-    };
-  }
-
+  // Métodos auxiliares
+  
   async createConversation() {
     this.ensureApiKey();
 
@@ -90,11 +64,11 @@ class OpenAIAssistantProvider extends BaseModel {
 
   async sendMessage(options) {
     const { message, sessionData } = options;
-    const providerState = this.getProviderState(sessionData);
+    const state = new ProviderState(sessionData);
+    const systemInstruction = state.getSystemInstruction();
+    let conversationId = state.get('conversationId') || (state.threadId.startsWith('conv_') ? state.threadId : '');
 
     try {
-      let conversationId = providerState.conversationId;
-
       if (!conversationId) {
         if (sessionData?.threadId) {
           console.warn(
@@ -109,7 +83,7 @@ class OpenAIAssistantProvider extends BaseModel {
       const response = await this.getClient().responses.create({
         model: this.model,
         conversation: conversationId,
-        instructions: providerState.systemInstruction,
+        instructions: systemInstruction,
         input: [
           {
             role: 'user',
@@ -129,16 +103,15 @@ class OpenAIAssistantProvider extends BaseModel {
         throw Errors.openAI.noTextContent();
       }
 
+      state.update({
+        conversationId,
+        systemInstruction,
+        lastResponseId: response.id || state.get('lastResponseId'),
+      });
+
       return {
         message: responseMessage,
-        sessionData: {
-          threadId: conversationId,
-          providerState: {
-            conversationId,
-            systemInstruction: providerState.systemInstruction,
-            lastResponseId: response.id || providerState.lastResponseId,
-          },
-        },
+        sessionData: state.buildSessionData(conversationId),
       };
     } catch (error) {
       throw Errors.openAI.messageSendError(error);

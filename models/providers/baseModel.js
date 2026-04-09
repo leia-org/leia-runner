@@ -1,5 +1,6 @@
 const Errors = require('../../utils/errors');
 const Prompts = require('../../utils/prompts');
+const ProviderState = require('../providerState');
 
 class BaseModel {
   constructor() {
@@ -8,8 +9,7 @@ class BaseModel {
     this._client = null;
   }
 
-
-  // Validation
+  // Methods implemented for all providers by default
 
   /**
    * Obtiene el API key del proveedor desde la variable de entorno.
@@ -37,46 +37,6 @@ class BaseModel {
     return apiKey;
   }
 
-  // To be implemented by each provider
-
-  /**
-   * Crea el cliente del proveedor. Debe ser implementado por cada subclase.
-   * Solo se invoca una vez, la primera vez que se necesita el cliente.
-   * @returns {Object} Cliente del proveedor
-   */
-  createClient() {
-    throw new Error('Method createClient must be implemented by subclasses');
-  }
-
-  /**
-   * Define el threadId para la sesión. Este método debe ser implementado por cada proveedor para determinar cómo manejar el contexto de la conversación.
-   * @returns {string} El threadId a usar para la sesión, o un string vacío si el proveedor no utiliza threadId. 
-   */
-  async setThreadId() {
-    return '';
-  }
-
-  /**
-   * Construye el providerState inicial para una nueva sesión. Este método puede ser sobrescrito por cada proveedor para definir qué información se necesita almacenar en el providerState desde el inicio de la sesión.
-   * @returns {Object} El providerState inicial para la sesión
-   * @throws {Error} Si el método no es implementado por la subclase
-   */
-  getProviderState(sessionData = {}) {
-    throw new Error('Method getProviderState must be implemented by subclasses');
-  }
-
-  /**
-   * Genera la respuesta de evaluación a partir de la respuesta cruda del modelo. 
-   * Este método debe ser implementado por cada proveedor para definir cómo se procesa la respuesta del modelo para obtener la evaluación estructurada.
-   * @returns {Object} La evaluación estructurada a partir de la respuesta del modelo
-   * @throws {Error} Si el método no es implementado por la subclase
-   */
-  generateEvaluationResponse() {
-    throw new Error('Method generateEvaluationResponse must be implemented by subclasses');
-  }
-
-  // Methods implemented by all providers but can be overwritten if needed
-
    /**
    * Obtiene el cliente del proveedor (lazy initialization).
    * @returns {Object} Cliente del proveedor
@@ -88,6 +48,22 @@ class BaseModel {
       this._client = this.createClient(apiKey);
     }
     return this._client;
+  }
+
+  /**
+   * Obtiene el estado del proveedor desde sessionData usando ProviderState.
+   * Este método centraliza la lógica de extracción de estado de sesión.
+   * @param {Object} sessionData - Datos de sesión
+   * @returns {Object} Estado del proveedor
+   */
+  getProviderState(sessionData = {}) {
+    const state = new ProviderState(sessionData);
+    
+    return {
+      threadId: state.threadId,
+      systemInstruction: state.getSystemInstruction(),
+      providerState: state.providerState,
+    };
   }
 
   /**
@@ -103,19 +79,16 @@ class BaseModel {
     }
 
     const threadId = await this.setThreadId();
-    const initialSessionData = {
-      threadId: '',
+    
+    return {
+      threadId,
       providerState: {
         systemInstruction: instructions
       }
     };
-
-    return {
-      threadId: threadId,
-      providerState: this.getProviderState(initialSessionData)
-    };
   }
-    
+
+  // Proximo metodo a generalizar:
   /**
    * Envía un mensaje a la sesión
    * @param {Object} options - Opciones para enviar el mensaje
@@ -145,6 +118,35 @@ class BaseModel {
     } catch (error) {
       throw Errors.baseModel.evaluationError(error);
     }
+  }
+
+ // To be implemented by each provider
+
+  /**
+   * Crea el cliente del proveedor. Debe ser implementado por cada subclase.
+   * Solo se invoca una vez, la primera vez que se necesita el cliente.
+   * @returns {Object} Cliente del proveedor
+   */
+  createClient() {
+    throw new Error('Method createClient must be implemented by subclasses');
+  }
+
+  /**
+   * Define el threadId para la sesión. Este método debe ser implementado por cada proveedor para determinar cómo manejar el contexto de la conversación.
+   * @returns {string} El threadId a usar para la sesión, o un string vacío si el proveedor no utiliza threadId. 
+   */
+  async setThreadId() {
+    return '';
+  }
+
+  /**
+   * Genera la respuesta de evaluación a partir de la respuesta cruda del modelo. 
+   * Este método debe ser implementado por cada proveedor para definir cómo se procesa la respuesta del modelo para obtener la evaluación estructurada.
+   * @returns {Object} La evaluación estructurada a partir de la respuesta del modelo
+   * @throws {Error} Si el método no es implementado por la subclase
+   */
+  generateEvaluationResponse() {
+    throw new Error('Method generateEvaluationResponse must be implemented by subclasses');
   }
 }
 

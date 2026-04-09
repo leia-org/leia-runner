@@ -1,6 +1,7 @@
 require('dotenv').config();
 const BaseModel = require('./baseModel');
 const Errors = require('../../utils/errors');
+const ProviderState = require('../providerState');
 const { GoogleGenAI } = require('@google/genai');
 
 /**
@@ -16,31 +17,25 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     this.evaluationModel = process.env.GEMINI_EVALUATION_MODEL || this.model;
   }
 
+  // Requerido para el baseModel
   createClient(apiKey) {
     return new GoogleGenAI({ apiKey });
   }
 
-  getProviderState(sessionData = {}) {
-    const providerState = sessionData.providerState && typeof sessionData.providerState === 'object'
-      ? sessionData.providerState
-      : {};
-
-    return {
-      systemInstruction: providerState.systemInstruction,
-      previousInteractionId: providerState.previousInteractionId || sessionData.threadId || ''
-    };
-  }
+  // Métodos auxiliares 
 
   async sendMessage(options) {
     const { message, sessionData } = options;
-    const providerState = this.getProviderState(sessionData);
+    const state = new ProviderState(sessionData);
+    const systemInstruction = state.getSystemInstruction();
+    const previousInteractionId = state.get('previousInteractionId') || state.threadId;
 
     try {
       const interaction = await this.createInteraction({
         model: this.model,
         input: message,
-        systemInstruction: providerState.systemInstruction,
-        previousInteractionId: providerState.previousInteractionId
+        systemInstruction,
+        previousInteractionId
       });
 
       const responseMessage = this.extractTextFromInteraction(interaction);
@@ -49,15 +44,13 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
         throw Errors.gemini.noTextContent();
       }
 
+      state.update({
+        previousInteractionId: interaction.id || previousInteractionId
+      });
+
       return {
         message: responseMessage,
-        sessionData: {
-          threadId: interaction.id || providerState.previousInteractionId,
-          providerState: {
-            ...providerState,
-            previousInteractionId: interaction.id || providerState.previousInteractionId
-          }
-        }
+        sessionData: state.buildSessionData(interaction.id || previousInteractionId),
       };
     } catch (error) {
       throw Errors.gemini.messageSendError(error);
