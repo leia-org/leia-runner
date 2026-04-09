@@ -2,7 +2,7 @@ require('dotenv').config();
 const BaseModel = require('./baseModel');
 const Errors = require('../../utils/errors');
 const ProviderState = require('../providerState');
-const ollamaConversationStore = require('../../utils/conversationStore');
+const ollamaCS = require('../conversationStore');
 
 class OllamaProvider extends BaseModel {
   constructor() {
@@ -57,7 +57,7 @@ class OllamaProvider extends BaseModel {
     const systemInstruction = state.getSystemInstruction();
 
     try {
-      const conversationMessages = await ollamaConversationStore.buildConversationForRequest(
+      const conversationMessages = await ollamaCS.buildConversationForRequest(
         sessionId,
         systemInstruction,
         message
@@ -74,10 +74,10 @@ class OllamaProvider extends BaseModel {
         throw Errors.ollama.noTextContent();
       }
 
-      await ollamaConversationStore.storeAssistantResponse(sessionId, responseMessage);
+      await ollamaCS.storeAssistantResponse(sessionId, responseMessage);
 
       state.update({
-        conversationKey: ollamaConversationStore.getConversationKey(sessionId),
+        conversationKey: ollamaCS.getConversationKey(sessionId),
         model: this.model,
       });
 
@@ -90,7 +90,6 @@ class OllamaProvider extends BaseModel {
     }
   }
 
-  
   async generateEvaluationResponse(prompt) {
     try {
       const response = await this.createChatCompletion({
