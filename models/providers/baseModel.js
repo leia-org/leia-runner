@@ -88,16 +88,6 @@ class BaseModel {
     };
   }
 
-  // Proximo metodo a generalizar:
-  /**
-   * Envía un mensaje a la sesión
-   * @param {Object} options - Opciones para enviar el mensaje
-   * @returns {Promise<Object>} - Respuesta del modelo
-   */
-  async sendMessage(options) {
-    throw new Error('Method sendMessage must be implemented by subclasses');
-  }
-
   /**
    * Evalúa una solución de estudiante
    * @param {Object} options - Opciones para la evaluación
@@ -129,6 +119,15 @@ class BaseModel {
    */
   createClient() {
     throw new Error('Method createClient must be implemented by subclasses');
+  }
+
+  /**
+   * Envía un mensaje a la sesión
+   * @param {Object} options - Opciones para enviar el mensaje
+   * @returns {Promise<Object>} - Respuesta del modelo
+   */
+  async sendMessage(options) {
+    throw new Error('Method sendMessage must be implemented by subclasses');
   }
 
   /**
