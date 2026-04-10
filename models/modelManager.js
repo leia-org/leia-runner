@@ -1,6 +1,5 @@
 const fs = require('fs').promises;
 const path = require('path');
-const { redisClient } = require('../config/redis');
 require('dotenv').config();
 const modelSyncService = require('../services/modelSyncService');
 
@@ -8,7 +7,6 @@ class ModelManager {
   constructor() {
     this.models = new Map();
     this.modelDir = path.join(__dirname, 'providers');
-    this.validatedModels = new Set();
     this.defaultModel = process.env.DEFAULT_MODEL || 'openai';
   }
 
@@ -22,28 +20,18 @@ class ModelManager {
           throw error;
         }
       }
-      
-      // Cargar modelos desde Redis
-      const cachedModels = await redisClient.hGetAll('validated_models');
-      if (cachedModels) {
-        Object.keys(cachedModels).forEach(modelName => {
-          if (cachedModels[modelName] === 'true') {
-            this.validatedModels.add(modelName);
-          }
-        });
-      }
-      
-      // Cargar y probar todos los modelos disponibles
+
       await this.loadModels();
 
-      // Verificar que el modelo por defecto está disponible
-      if (this.defaultModel && !this.validatedModels.has(this.defaultModel)) {
-        // Si el modelo por defecto no está validado, tomar el primer modelo validado
-        if (this.validatedModels.size > 0) {
-          this.defaultModel = Array.from(this.validatedModels)[0];
-          console.log(`Modelo por defecto '${process.env.DEFAULT_MODEL}' no está validado. Usando '${this.defaultModel}' como modelo por defecto.`);
+      if (!this.models.has(this.defaultModel)) {
+        const firstModel = Array.from(this.models.keys())[0];
+        if (firstModel) {
+          this.defaultModel = firstModel;
+          console.warn(
+            `Modelo por defecto '${process.env.DEFAULT_MODEL}' no está disponible. Usando '${this.defaultModel}'.`
+          );
         } else {
-          console.warn('No hay modelos validados disponibles.');
+          console.warn('No hay modelos disponibles cargados.');
         }
       }
       
@@ -56,9 +44,10 @@ class ModelManager {
 
   async loadModels() {
     try {
+      this.models.clear();
       const files = await fs.readdir(this.modelDir);
-      const modelFiles = files.filter(file => file.endsWith('.js')).filter(file => file !== 'baseModel.js');
-      
+      const modelFiles = files.filter((file) => file.endsWith('.js') && file !== 'baseModel.js');
+
       for (const file of modelFiles) {
         const modelName = path.basename(file, '.js');
         const modelPath = path.join(this.modelDir, file);
@@ -170,21 +159,21 @@ class ModelManager {
   getModel(modelName = 'default') {
     // Si se solicita el modelo por defecto, usar el configurado
     if (modelName === 'default') {
-      if (this.validatedModels.has(this.defaultModel)) {
+      if (this.models.has(this.defaultModel)) {
         return this.models.get(this.defaultModel);
-      } else if (this.validatedModels.size > 0) {
-        // Si el modelo por defecto no está disponible, usar el primero validado
-        const firstModel = Array.from(this.validatedModels)[0];
+      }
+
+      const firstModel = Array.from(this.models.keys())[0];
+      if (firstModel) {
         return this.models.get(firstModel);
       }
     }
-    
-    // Verificar si el modelo solicitado existe y está validado
-    if (this.validatedModels.has(modelName)) {
+
+    if (this.models.has(modelName)) {
       return this.models.get(modelName);
     }
-    
-    throw new Error(`Modelo '${modelName}' no encontrado o no validado`);
+
+    throw new Error(`Modelo '${modelName}' no encontrado`);
   }
 
   async registerModel(modelName, modelCode) {
@@ -196,110 +185,46 @@ class ModelManager {
       // Recargar y probar el modelo
       delete require.cache[require.resolve(modelPath)];
       const modelModule = require(modelPath);
-      
-      const testResult = await this.testModel(modelModule, modelName);
-      
-      if (testResult.success) {
-        this.models.set(modelName, modelModule);
-        this.validatedModels.add(modelName);
-        await redisClient.hSet('validated_models', modelName, 'true');
-        this.notifyModelChanges();
-        return { success: true };
-      } else {
-        await redisClient.hSet('validated_models', modelName, 'false');
-        return { 
-          success: false, 
-          errors: testResult.errors 
+
+      if (typeof modelModule.createSession !== 'function' || typeof modelModule.sendMessage !== 'function') {
+        return {
+          success: false,
+          errors: ['El modelo debe implementar createSession y sendMessage'],
         };
       }
+
+      this.models.set(modelName, modelModule);
+      await this.notifyModelChanges();
+      return { success: true };
     } catch (error) {
       console.error(`Error registrando el modelo '${modelName}':`, error);
-      return { 
-        success: false, 
-        errors: [error.message] 
+      return {
+        success: false,
+        errors: [error.message],
       };
     }
   }
 
-  getAvailableModels() {
-    return Array.from(this.validatedModels);
-  }
-
-  getDefaultModel() {
-    return this.defaultModel;
-  }
-
-  setDefaultModel(name) {
-    if (!this.models.has(name)) {
-      throw new Error(`Model ${name} not found`);
-    }
-    this.defaultModel = name;
-    this.notifyModelChanges();
-  }
-
-  async notifyModelChanges() {
-    try {
-      await modelSyncService.syncModels();
-    } catch (error) {
-      console.error('Error notifying model changes:', error);
-    }
-  }
-
-  /**
-   * Inicializa los modelos disponibles
-   * @returns {Promise<void>}
-   */
   async initializeModels() {
-    try {
-      // Registrar modelos que tenemos en el sistema de archivos
-      await this.loadModels();
-    } catch (error) {
-      console.error('Error initializing models:', error);
-      throw error;
-    }
+    await this.initialize();
   }
 
-  /**
-   * Registra un nuevo modelo
-   * @param {string} name - Nombre del modelo
-   * @param {Object} model - Instancia del modelo
-   */
-  registerModel(name, model) {
-    this.models.set(name, model);
-    this.notifyModelChanges();
-  }
-
-  /**
-   * Obtiene todos los modelos disponibles
-   * @returns {Array<string>} - Lista de nombres de modelos
-   */
   getAvailableModels() {
     return Array.from(this.models.keys());
   }
 
-  /**
-   * Obtiene el modelo por defecto
-   * @returns {string} - Nombre del modelo por defecto
-   */
   getDefaultModel() {
     return this.defaultModel;
   }
 
-  /**
-   * Establece el modelo por defecto
-   * @param {string} name - Nombre del modelo
-   */
   setDefaultModel(name) {
     if (!this.models.has(name)) {
       throw new Error(`Model ${name} not found`);
     }
     this.defaultModel = name;
-    this.notifyModelChanges();
+    return this.notifyModelChanges();
   }
 
-  /**
-   * Notifica cambios en los modelos y sincroniza con Redis
-   */
   async notifyModelChanges() {
     try {
       await modelSyncService.syncModels();
