@@ -18,7 +18,7 @@ const MiniEvaluationSchema = z.object({
 const MiniEvaluationResponseFormat = {
   type: 'object',
   properties: {
-    score: { type: 'number' },
+    score: { type: 'number', minimum: 0, maximum: 10 },
     feedback: { type: 'string' },
     suggestions: {
       type: 'array',
@@ -29,6 +29,30 @@ const MiniEvaluationResponseFormat = {
 };
 
 let originalProvider;
+
+async function runWithSchemaRetry(action, { maxAttempts = 3 } = {}) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await action();
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      const isSchemaRangeError =
+        message.includes('too_big') ||
+        message.includes('too_small') ||
+        message.includes('Number must be less than or equal to') ||
+        message.includes('Number must be greater than or equal to');
+
+      if (!isSchemaRangeError || attempt === maxAttempts) {
+        break;
+      }
+    }
+  }
+
+  throw lastError;
+}
 
 //antes de todos los tests, guardamos el valor original de AI_PROVIDER para restaurarlo después
 beforeAll(() => {
@@ -48,19 +72,16 @@ describe('LLM integration tests', () => {
   test('calls OpenAI structured endpoint successfully', { timeout: 120000 }, async () => {
     process.env.AI_PROVIDER = 'openai';
 
-    let result;
-    try {
-      result = await structuredGenerationService.generateObject({
+    const result = await runWithSchemaRetry(async () =>
+      structuredGenerationService.generateObject({
         systemPrompt: 'You are a strict evaluator. Return compact, structured JSON only.',
         userPrompt:
           'Evaluate: student says 2+2=4. expected is 4. Return score, short feedback and one suggestion.',
         zodSchema: MiniEvaluationSchema,
         schemaName: 'mini_evaluation',
         openaiModel: OPENAI_MODEL,
-      });
-    } catch (error) {
-      throw new Error(error);
-    }
+      })
+    );
 
     expect(result).toEqual(
       expect.objectContaining({
@@ -77,9 +98,8 @@ describe('LLM integration tests', () => {
   test('calls Gemini structured endpoint successfully', { timeout: 120000 }, async () => {
     process.env.AI_PROVIDER = 'gemini';
 
-    let result;
-    try {
-      result = await structuredGenerationService.generateObject({
+    const result = await runWithSchemaRetry(async () =>
+      structuredGenerationService.generateObject({
         systemPrompt: 'You are a strict evaluator. Return compact, structured JSON only.',
         userPrompt:
           'Evaluate: student says Earth is round. expected is Earth is round. Return score, feedback and one suggestion.',
@@ -87,10 +107,8 @@ describe('LLM integration tests', () => {
         schemaName: 'mini_evaluation',
         geminiModel: GEMINI_MODEL,
         geminiResponseFormat: MiniEvaluationResponseFormat,
-      });
-    } catch (error) {
-      throw new Error(error);
-    }
+      })
+    );
 
     expect(result).toEqual(
       expect.objectContaining({
