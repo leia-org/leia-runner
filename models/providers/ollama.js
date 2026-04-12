@@ -69,6 +69,12 @@ class OllamaProvider extends BaseModel {
     }
   }
 
+  /**
+   * Realiza la llamada al API de Ollama y devuelve la evaluación estructurada.
+   * Invocado por BaseModel.evaluateSolution.
+   * @param {string} prompt - Prompt de evaluación ya construido
+   * @returns {Promise<Object>} - { score, evaluation }
+   */
   async generateEvaluationResponse(prompt) {
     try {
       const response = await this.createChatCompletion({
@@ -77,14 +83,14 @@ class OllamaProvider extends BaseModel {
           {
             role: 'system',
             content:
-              'You are an expert evaluator. Return only valid JSON with fields "score" (number from 0 to 10) and "evaluation" (string).',
+              'You are an expert evaluator. Your task is to evaluate solutions to problems and provide detailed feedback.',
           },
           {
             role: 'user',
             content: prompt,
           },
         ],
-        format: 'json',
+        format: this.getEvaluationResponseFormat(),
       });
 
       const responseMessage = this.extractAssistantMessage(response);
@@ -93,7 +99,7 @@ class OllamaProvider extends BaseModel {
         throw Errors.ollama.noEvaluationContent();
       }
 
-      return this.parseEvaluationResponse(responseMessage);
+      return JSON.parse(this.sanitizeJsonResponse(responseMessage));
     } catch (error) {
       throw Errors.ollama.evaluationError(error);
     }
@@ -148,21 +154,20 @@ class OllamaProvider extends BaseModel {
     return content;
   }
 
-  parseEvaluationResponse(responseText) {
-    const sanitized = this.sanitizeJsonResponse(responseText);
-    const parsed = JSON.parse(sanitized);
-
-    if (typeof parsed.score !== 'number') {
-      throw new Error('Ollama evaluation did not return numeric score');
-    }
-
-    if (typeof parsed.evaluation !== 'string') {
-      throw new Error('Ollama evaluation did not return string evaluation');
-    }
-
+  getEvaluationResponseFormat() {
     return {
-      score: Math.max(0, Math.min(10, parsed.score)),
-      evaluation: parsed.evaluation,
+      type: 'object',
+      properties: {
+        score: {
+          type: 'number',
+          description: 'Score between 0 and 10',
+        },
+        evaluation: {
+          type: 'string',
+          description: 'Detailed evaluation in Markdown format',
+        },
+      },
+      required: ['score', 'evaluation'],
     };
   }
 
