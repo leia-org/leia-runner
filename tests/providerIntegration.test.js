@@ -4,6 +4,8 @@ import { z } from 'zod';
 require('dotenv').config();
 
 const structuredGenerationService = require('../services/structuredGenerationService');
+const openaiAssistantProvider = require('../models/providers/openai-assistant');
+const geminiProvider = require('../models/providers/gemini-3.1-flash-lite-preview');
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 
@@ -27,6 +29,58 @@ const MiniEvaluationResponseFormat = {
   },
   required: ['score', 'feedback', 'suggestions'],
 };
+
+async function assertSessionLifecycle(provider, { instructions, message, expectInitialThreadId = 'non-empty' }) {
+  const sessionData = await provider.createSession({ instructions });
+
+  expect(sessionData).toEqual(
+    expect.objectContaining({
+      assistantId: expect.any(String),
+      threadId: expect.any(String),
+      providerState: expect.any(Object),
+    })
+  );
+  expect(sessionData.providerState.systemInstruction).toBe(instructions);
+
+  if (expectInitialThreadId === 'empty') {
+    expect(sessionData.threadId).toBe('');
+  } else {
+    expect(sessionData.threadId).not.toBe('');
+  }
+
+  const response = await provider.sendMessage({
+    message,
+    sessionData,
+  });
+
+  expect(response).toEqual(
+    expect.objectContaining({
+      message: expect.any(String),
+      sessionData: expect.any(Object),
+    })
+  );
+  expect(response.message.trim()).toBeTruthy();
+  expect(response.sessionData).toEqual(
+    expect.objectContaining({
+      threadId: expect.any(String),
+      providerState: expect.any(Object),
+    })
+  );
+  expect(response.sessionData.providerState.systemInstruction).toBe(instructions);
+  
+  // Verify that threadId respects provider behavior:
+  // - OpenAI: threadId is created in createSession and persists
+  // - Gemini: threadId is empty initially and created on first sendMessage
+  if (sessionData.threadId === '') {
+    // Gemini behavior: threadId should be assigned after the first message
+    expect(response.sessionData.threadId).not.toBe('');
+  } else {
+    // OpenAI behavior: threadId should be the same as initial sessionData
+    expect(response.sessionData.threadId).toBe(sessionData.threadId);
+  }
+
+  return response;
+}
 
 let originalProvider;
 
@@ -93,6 +147,12 @@ describe('LLM integration tests', () => {
     expect(result.score).toBeGreaterThanOrEqual(0);
     expect(result.score).toBeLessThanOrEqual(10);
     expect(result.suggestions.length).toBeGreaterThan(0);
+
+    await assertSessionLifecycle(openaiAssistantProvider, {
+      instructions: 'You are a concise assistant that answers briefly.',
+      message: 'Reply with a short confirmation that the session flow works.',
+      expectInitialThreadId: 'non-empty',
+    });
   });
 
   test('calls Gemini structured endpoint successfully', { timeout: 120000 }, async () => {
@@ -120,5 +180,11 @@ describe('LLM integration tests', () => {
     expect(result.score).toBeGreaterThanOrEqual(0);
     expect(result.score).toBeLessThanOrEqual(10);
     expect(result.suggestions.length).toBeGreaterThan(0);
+
+    await assertSessionLifecycle(geminiProvider, {
+      instructions: 'You are a concise assistant that answers briefly.',
+      message: 'Reply with a short confirmation that the session flow works.',
+      expectInitialThreadId: 'empty',
+    });
   });
 });
