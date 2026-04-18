@@ -3,10 +3,25 @@ const { redisClient } = require('../config/redis');
 class CacheService {
   constructor() {
     this.sessionPrefix = 'session:';
-    this.conversationPrefix = 'session:conversation:';
+    this.conversationPrefix = 'conversations:';
     this.leiaMetaPrefix = 'leia:meta:';
     this.modelsPrefix = 'models:';
     this.validatedModelsKey = 'validated_models';
+  }
+
+  /**
+   * Obtiene el sessionId desde una clave de conversación.
+   * Formato esperado: conversations:<providerName>:<sessionId>
+   * @param {string} key - Clave de conversación
+   * @returns {string} sessionId o string vacío si no se puede extraer
+   */
+  extractSessionIdFromConversationKey(key) {
+    if (!key || !key.startsWith(this.conversationPrefix)) {
+      return '';
+    }
+
+    const parts = key.split(':');
+    return parts.length >= 3 ? parts[parts.length - 1] : '';
   }
 
   /**
@@ -104,7 +119,12 @@ class CacheService {
     for (const key of keys) {
       try {
         if (key.startsWith(this.conversationPrefix)) {
-          const sessionId = key.replace(this.conversationPrefix, '');
+          const sessionId = this.extractSessionIdFromConversationKey(key);
+
+          if (!sessionId) {
+            continue;
+          }
+
           const sessionCreatedAt = await redisClient.hGet(`${this.sessionPrefix}${sessionId}`, 'createdAt');
 
           if (sessionCreatedAt) {
@@ -143,10 +163,12 @@ class CacheService {
    * @returns {Array} - Array de claves filtradas
    */
   filterKeysBySession(keys, sessionId) {
+    const suffix = `:${sessionId}`;
+
     return keys.filter(key => 
       key === `${this.sessionPrefix}${sessionId}` ||
       key === `${this.leiaMetaPrefix}${sessionId}` ||
-      key === `${this.conversationPrefix}${sessionId}`
+      (key.startsWith(this.conversationPrefix) && key.endsWith(suffix))
     );
   }
 
@@ -172,8 +194,12 @@ class CacheService {
               filteredKeys.push(metaKey);
             }
 
-            const conversationKey = `${this.conversationPrefix}${sessionId}`;
-            if (keys.includes(conversationKey)) {
+            const conversationSuffix = `:${sessionId}`;
+            const conversationKeys = keys.filter((keyName) =>
+              keyName.startsWith(this.conversationPrefix) && keyName.endsWith(conversationSuffix)
+            );
+
+            for (const conversationKey of conversationKeys) {
               filteredKeys.push(conversationKey);
             }
           }

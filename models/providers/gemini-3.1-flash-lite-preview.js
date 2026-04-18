@@ -2,6 +2,7 @@ require('dotenv').config();
 const BaseModel = require('./baseModel');
 const Errors = require('../../utils/errors');
 const ProviderState = require('../providerState');
+const { ConversationStore } = require('../conversationStore');
 const { GoogleGenAI } = require('@google/genai');
 
 /**
@@ -15,6 +16,10 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     this.apiKeyEnvVar = 'GEMINI_API_KEY';
     this.model = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite-preview';
     this.evaluationModel = process.env.GEMINI_EVALUATION_MODEL || this.model;
+    this.conversationStore = new ConversationStore({
+      providerName: 'gemini',
+      defaultMaxMessages: 60
+    });
   }
 
   // Requerido para el baseModel
@@ -24,12 +29,20 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
   }
 
   async sendMessage(options) {
-    const { message, sessionData } = options;
+    const { sessionId, message, sessionData } = options;
+
+    if (!sessionId) {
+      throw Errors.gemini.missingSessionId();
+    }
+
     const state = new ProviderState(sessionData);
     const systemInstruction = state.getSystemInstruction();
     const previousInteractionId = state.get('previousInteractionId') || state.threadId;
 
     try {
+      await this.conversationStore.ensureSystemMessage(sessionId, systemInstruction);
+      await this.conversationStore.appendMessage(sessionId, 'user', message);
+
       const interaction = await this.createInteraction({
         model: this.model,
         input: message,
@@ -43,8 +56,11 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
         throw Errors.gemini.noTextContent();
       }
 
+      await this.conversationStore.storeAssistantResponse(sessionId, responseMessage);
+
       state.update({
-        previousInteractionId: interaction.id || previousInteractionId
+        previousInteractionId: interaction.id || previousInteractionId,
+        conversationKey: this.conversationStore.getConversationKey(sessionId)
       });
 
       return {

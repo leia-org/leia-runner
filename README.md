@@ -10,6 +10,22 @@ API for interacting with LEIA instances.
 
 ## Usage
 
+### Environment variables
+
+Use `.env.example` as reference. For conversation cache behavior in Redis, you can control it with one switch:
+
+- Global: `CONVERSATION_CACHE_ENABLED=true|false`
+- Provider overrides:
+  - `OPENAI_CONVERSATION_CACHE_ENABLED=true|false`
+  - `GEMINI_CONVERSATION_CACHE_ENABLED=true|false`
+  - `OLLAMA_CONVERSATION_CACHE_ENABLED=true|false`
+
+Priority order:
+
+1. Provider-specific variable
+2. Global variable
+3. Default value (`true`)
+
 ### Start the server
 
 ```bash

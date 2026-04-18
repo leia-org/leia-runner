@@ -9,15 +9,43 @@ class ConversationStore {
   /**
    * Creates a new ConversationStore instance
    * @param {Object} options - Configuration options
-   * @param {string} options.prefix - Redis key prefix (default: 'session:conversation:')
-   * @param {string} options.providerName - Provider name for env var lookup (default: generic settings)
+   * @param {string} options.providerName - Provider name for env var lookup and key namespacing
    * @param {number} options.defaultMaxMessages - Default max messages when not configured (default: 60)
    */
   constructor(options = {}) {
-    this.keyPrefix = options.prefix || 'conversation:';
-    this.providerName = options.providerName || '';
+    this.providerName = typeof options.providerName === 'string' ? options.providerName.trim() : '';
+    this.basePrefix = 'conversations:';
     this.defaultMaxMessages = options.defaultMaxMessages || 60;
     this.maxMessages = this.parseMaxMessages();
+    this.cacheEnabled = this.isCacheEnabled(options.enabled);
+  }
+
+  /**
+   * Parses cache enabled flag from explicit option or environment variables.
+   * Provider-specific env var has priority over global one.
+   * @private
+   * @param {boolean|undefined} explicitValue - Explicit option value
+   * @returns {boolean} Whether cache should be used
+   */
+  isCacheEnabled(explicitValue) {
+    if (typeof explicitValue === 'boolean') {
+      return explicitValue;
+    }
+
+    let rawValue;
+
+    if (this.providerName) {
+      const providerEnvVar = `${this.providerName.toUpperCase()}_CONVERSATION_CACHE_ENABLED`;
+      rawValue = process.env[providerEnvVar];
+    }
+
+    if (rawValue === undefined) {
+      rawValue = process.env.CONVERSATION_CACHE_ENABLED;
+    }
+
+    if (rawValue === undefined || rawValue === null || rawValue === '') {
+      return true;
+    }
   }
 
   /**
@@ -48,7 +76,9 @@ class ConversationStore {
   }
 
   getConversationKey(sessionId) {
-    return `${this.keyPrefix}${sessionId}`;
+    const normalizedSessionId = typeof sessionId === 'string' ? sessionId.trim() : '';
+    const providerSegment = this.providerName || 'generic';
+    return `${this.basePrefix}${providerSegment}:${normalizedSessionId}`;
   }
 
   /**
@@ -81,6 +111,10 @@ class ConversationStore {
    * @returns {Promise<Array>} Array of normalized messages
    */
   async getConversation(sessionId) {
+    if (!this.cacheEnabled) {
+      return [];
+    }
+
     const rawMessages = await redisClient.lRange(this.getConversationKey(sessionId), 0, -1);
 
     return rawMessages
@@ -109,6 +143,10 @@ class ConversationStore {
       return;
     }
 
+    if (!this.cacheEnabled) {
+      return;
+    }
+
     const key = this.getConversationKey(sessionId);
     await redisClient.rPush(key, JSON.stringify(message));
     await redisClient.lTrim(key, -this.maxMessages, -1);
@@ -125,6 +163,10 @@ class ConversationStore {
     const normalizedSystemMessage = this.normalizeMessage('system', systemInstruction);
 
     if (!normalizedSystemMessage) {
+      return;
+    }
+
+    if (!this.cacheEnabled) {
       return;
     }
 
@@ -173,6 +215,22 @@ class ConversationStore {
    * @returns {Promise<Array>} Complete conversation history ready for LLM
    */
   async buildConversationForRequest(sessionId, systemInstruction, userMessage) {
+    if (!this.cacheEnabled) {
+      const fallbackConversation = [];
+      const normalizedSystemMessage = this.normalizeMessage('system', systemInstruction);
+      const normalizedUserMessage = this.normalizeMessage('user', userMessage);
+
+      if (normalizedSystemMessage) {
+        fallbackConversation.push(normalizedSystemMessage);
+      }
+
+      if (normalizedUserMessage) {
+        fallbackConversation.push(normalizedUserMessage);
+      }
+
+      return fallbackConversation;
+    }
+
     await this.ensureSystemMessage(sessionId, systemInstruction);
     await this.appendMessage(sessionId, 'user', userMessage);
     return this.getConversation(sessionId);
@@ -194,6 +252,10 @@ class ConversationStore {
    * @returns {Promise<void>}
    */
   async clearConversation(sessionId) {
+    if (!this.cacheEnabled) {
+      return;
+    }
+
     await redisClient.del(this.getConversationKey(sessionId));
   }
 }
