@@ -14,6 +14,9 @@ const baseModel = {
 };
 
 const openAI = {
+  missingSessionId: () =>
+    createError(400, 'sessionId es requerido para usar el proveedor OpenAI'),
+
   noConversationId: () =>
     createError(500, 'OpenAI no devolvio un identificador de conversacion'),
 
@@ -43,6 +46,8 @@ const openAI = {
 };
 
 const gemini = {
+  missingSessionId: () =>
+    createError(400, 'sessionId es requerido para usar el proveedor Gemini'),
 
   noTextContent: () => createError(500, 'Gemini no devolvio contenido de texto'),
 
