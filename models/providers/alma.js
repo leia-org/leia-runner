@@ -6,7 +6,7 @@ const { ConversationStore } = require('../conversationStore');
 
 const ALMA_HOST = process.env.ALMA_HOST || 'https://alma.us.es';
 const ALMA_MODEL = process.env.ALMA_MODEL || 'meta-llama/Llama-3.1-8B-Instruct';
-const ALMA_MODEL_NAME = process.env.ALMA_MODEL_NAME || 'llama-3.1-8b-instruct'; // Fix: was reading ALMA_MODEL
+const ALMA_MODEL_NAME = process.env.ALMA_MODEL_NAME || 'llama-3.1-8b-instruct';
 const ALMA_MAX_TOKENS = parseInt(process.env.ALMA_MAX_TOKENS || '512', 10);
 const ALMA_TEMPERATURE = parseFloat(process.env.ALMA_TEMPERATURE || '0.7');
 
