@@ -128,8 +128,7 @@ class CacheService {
         }
       } catch (error) {
         console.error(`Error checking time for key ${key}:`, error);
-        // En caso de error, incluir la clave para ser conservador
-        filteredKeys.push(key);
+        // Skip key on error — we cannot determine its age, so don't delete it
       }
     }
 

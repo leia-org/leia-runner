@@ -55,9 +55,22 @@ class ModelManager {
         try {
           // Importar el modelo
           const modelModule = require(modelPath);
-
-          this.models.set(modelName, modelModule);
-          console.log(`Modelo '${modelName}' cargado exitosamente`);
+          
+          // Ejecutar tests automáticos
+          const testResult = await this.testModel(modelModule, modelName);
+          
+          if (testResult.success) {
+            // Si pasa los tests, registrarlo como validado
+            this.models.set(modelName, modelModule);
+            this.validatedModels.add(modelName);
+            await redisClient.hSet('validated_models', modelName, 'true');
+            await redisClient.expire('validated_models', 86400); // 24 hours
+            console.log(`Modelo '${modelName}' cargado y validado exitosamente`);
+          } else {
+            console.error(`Modelo '${modelName}' falló los tests:`, testResult.errors);
+            await redisClient.hSet('validated_models', modelName, 'false');
+            await redisClient.expire('validated_models', 86400); // 24 hours
+          }
         } catch (error) {
           console.error(`Error cargando el modelo '${modelName}':`, error);
         }
@@ -97,11 +110,22 @@ class ModelManager {
       // Recargar y probar el modelo
       delete require.cache[require.resolve(modelPath)];
       const modelModule = require(modelPath);
-
-      if (typeof modelModule.createSession !== 'function' || typeof modelModule.sendMessage !== 'function') {
+      
+      const testResult = await this.testModel(modelModule, modelName);
+      
+      if (testResult.success) {
+        this.models.set(modelName, modelModule);
+        this.validatedModels.add(modelName);
+        await redisClient.hSet('validated_models', modelName, 'true');
+        await redisClient.expire('validated_models', 86400); // 24 hours
+        this.notifyModelChanges();
+        return { success: true };
+      } else {
+        await redisClient.hSet('validated_models', modelName, 'false');
+        await redisClient.expire('validated_models', 86400); // 24 hours
         return {
-          success: false,
-          errors: ['El modelo debe implementar createSession y sendMessage'],
+          success: false, 
+          errors: testResult.errors 
         };
       }
 
