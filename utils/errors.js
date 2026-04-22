@@ -79,11 +79,30 @@ const ollama = {
   },
 };
 
+const alma = {
+  noTextContent: () =>
+    createError(500, 'ALMA did not return text content'),
+
+  noEvaluationContent: () =>
+    createError(500, 'ALMA did not return evaluation content'),
+
+  messageSendError: (originalError) => {
+    console.error('Error sending message to ALMA:', originalError);
+    return createError(500, 'Error sending message to ALMA');
+  },
+
+  evaluationError: (originalError) => {
+    console.error('Error evaluating solution with ALMA:', originalError);
+    return createError(500, 'Error evaluating the solution with ALMA');
+  },
+};
+
 const Errors = {
   baseModel,
   openAI,
   gemini,
   ollama,
+  alma,
 };
 
 module.exports = Errors;

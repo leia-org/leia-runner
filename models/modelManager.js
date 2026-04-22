@@ -2,10 +2,12 @@ const fs = require('fs').promises;
 const path = require('path');
 require('dotenv').config();
 const modelSyncService = require('../services/modelSyncService');
+const { redisClient } = require('../config/redis');
 
 class ModelManager {
   constructor() {
     this.models = new Map();
+    this.validatedModels = new Set();
     this.modelDir = path.join(__dirname, 'providers');
     this.defaultModel = process.env.DEFAULT_MODEL || 'openai';
   }
@@ -128,10 +130,6 @@ class ModelManager {
           errors: testResult.errors 
         };
       }
-
-      this.models.set(modelName, modelModule);
-      await this.notifyModelChanges();
-      return { success: true };
     } catch (error) {
       console.error(`Error registering model '${modelName}':`, error);
       return {
@@ -139,6 +137,30 @@ class ModelManager {
         errors: [error.message],
       };
     }
+  }
+
+  /**
+   * Validates that a loaded model module satisfies the BaseModel contract.
+   * Performs a structural check only — no network calls.
+   * @param {Object} modelModule - The loaded provider instance
+   * @param {string} modelName  - Provider name (for error messages)
+   * @returns {{ success: boolean, errors: string[] }}
+   */
+  async testModel(modelModule, modelName) {
+    const requiredMethods = ['sendMessage', 'createSession', 'evaluateSolution'];
+    const errors = [];
+
+    if (!modelModule || typeof modelModule !== 'object') {
+      return { success: false, errors: [`'${modelName}' did not export an object`] };
+    }
+
+    for (const method of requiredMethods) {
+      if (typeof modelModule[method] !== 'function') {
+        errors.push(`Missing required method: ${method}`);
+      }
+    }
+
+    return { success: errors.length === 0, errors };
   }
 
   async initializeModels() {

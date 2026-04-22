@@ -85,15 +85,7 @@ class SessionService {
       };
       
       const key = `${this.keyPrefix}${sessionId}`;
-      await redisClient.hSet(
-        key,
-        Object.fromEntries(
-          Object.entries(sessionData).map(([key, value]) => [
-            key,
-            value !== null && value !== undefined ? String(value) : ''
-          ])
-        )
-      );
+      await redisClient.hSet(key, this.serializeSessionData(sessionData));
       await redisClient.expire(key, 86400); // 24 hours
       
       return sessionData;
