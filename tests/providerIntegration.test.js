@@ -54,11 +54,11 @@ async function runWithSchemaRetry(action, { maxAttempts = 3 } = {}) {
   throw lastError;
 }
 
-//antes de todos los tests, guardamos el valor original de AI_PROVIDER para restaurarlo después
+// Before all tests, store the original AI_PROVIDER value to restore it later
 beforeAll(() => {
   originalProvider = process.env.AI_PROVIDER;
 });
-//después de todos los tests, restauramos el valor original de AI_PROVIDER para no afectar otras pruebas o el entorno
+// After all tests, restore the original AI_PROVIDER value to avoid affecting other tests or the environment
 afterAll(() => {
   if (typeof originalProvider === 'undefined') {
     delete process.env.AI_PROVIDER;

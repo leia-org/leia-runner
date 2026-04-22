@@ -5,8 +5,8 @@ const ProviderState = require('../providerState');
 const { GoogleGenAI } = require('@google/genai');
 
 /**
- * Proveedor de modelo basado en Gemini Interactions API.
- * Usa estado de servidor con previous_interaction_id para mantener el contexto.
+ * Model provider based on Gemini Interactions API.
+ * Uses server state with previous_interaction_id to maintain context.
  */
 class Gemini31FlashLitePreviewProvider extends BaseModel {
   constructor() {
@@ -17,7 +17,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     this.evaluationModel = process.env.GEMINI_EVALUATION_MODEL || this.model;
   }
 
-  // Requerido para el baseModel
+  // Required for BaseModel
   
   createClient(apiKey) {
     return new GoogleGenAI({ apiKey });
@@ -57,9 +57,9 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
   }
 
   /**
-   * Realiza la llamada al API de Gemini y devuelve la evaluación estructurada.
-   * Invocado por BaseModel.evaluateSolution.
-   * @param {string} prompt - Prompt de evaluación ya construido
+   * Performs the call to the Gemini API and returns the structured evaluation.
+   * Called by BaseModel.evaluateSolution.
+   * @param {string} prompt - Already built evaluation prompt
    * @returns {Promise<Object>} - { score, evaluation }
    */
   async generateEvaluationResponse(prompt) {
@@ -79,7 +79,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     return JSON.parse(this.sanitizeJsonResponse(responseText));
   }
 
-  // Métodos auxiliares 
+  // Helper methods 
 
   getEvaluationResponseFormat() {
     return {

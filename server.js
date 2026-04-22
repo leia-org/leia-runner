@@ -13,31 +13,31 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Cargar la especificación OpenAPI
+// Load OpenAPI specification
 const swaggerDocument = YAML.load('./api/openapi.yml');
 
-// Configurar Swagger UI
+// Configure Swagger UI
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
-// Rutas
+// Routes
 app.use('/api/v1', require('./routes/leiasRoutes'));
 
-// Inicializar Redis y sincronizar modelos
+// Initialize Redis and synchronize models
 async function initializeServer() {
   try {
-    // Conectar a Redis
+    // Connect to Redis
     await initRedis();
     console.log('Connected to Redis');
 
-    // Inicializar modelos
+    // Initialize models
     await modelManager.initializeModels();
     console.log('Models initialized');
 
-    // Sincronizar modelos en Redis
+    // Synchronize models in Redis
     await modelSyncService.syncModels();
     console.log('Models synchronized in Redis');
 
-    // Iniciar el servidor
+    // Start the server
     app.listen(port, () => {
       console.log(`Server running on port ${port}`);
     });

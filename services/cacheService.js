@@ -10,64 +10,64 @@ class CacheService {
   }
 
   /**
-   * Parsea el marco temporal a milisegundos
-   * @param {string} timeFrame - Marco temporal (ej: '1h', '2w', '3m', '5d', 'all')
-   * @returns {number|null} - Milisegundos desde ahora hacia atrás, null para 'all'
+   * Parses time frame to milliseconds
+   * @param {string} timeFrame - Time frame (e.g., '1h', '2w', '3m', '5d', 'all')
+   * @returns {number|null} - Milliseconds from now backwards, null for 'all'
    */
   parseTimeFrame(timeFrame) {
     if (!timeFrame || timeFrame === 'all') {
-      return null; // Purgar todo
+      return null; // Purge all
     }
 
     const match = timeFrame.match(/^(\d+)([hdwm])$/);
     if (!match) {
-      throw new Error('Formato de tiempo inválido. Use: Xh (horas), Xd (días), Xw (semanas), Xm (meses), o "all"');
+      throw new Error('Invalid time format. Use: Xh (hours), Xd (days), Xw (weeks), Xm (months), or "all"');
     }
 
     const [, amount, unit] = match;
     const value = parseInt(amount);
 
     const multipliers = {
-      'h': 60 * 60 * 1000,        // horas a milisegundos
-      'd': 24 * 60 * 60 * 1000,   // días a milisegundos
-      'w': 7 * 24 * 60 * 60 * 1000, // semanas a milisegundos
-      'm': 30 * 24 * 60 * 60 * 1000 // meses (aprox 30 días) a milisegundos
+      'h': 60 * 60 * 1000,        // hours to milliseconds
+      'd': 24 * 60 * 60 * 1000,   // days to milliseconds
+      'w': 7 * 24 * 60 * 60 * 1000, // weeks to milliseconds
+      'm': 30 * 24 * 60 * 60 * 1000 // months (approx 30 days) to milliseconds
     };
 
     return value * multipliers[unit];
   }
 
   /**
-   * Parsea una fecha específica a timestamp
-   * @param {string} specificDate - Fecha específica en formato ISO (YYYY-MM-DD) o timestamp
-   * @returns {number} - Timestamp en milisegundos
+   * Parses a specific date to timestamp
+   * @param {string} specificDate - Specific date in ISO format (YYYY-MM-DD) or timestamp
+   * @returns {number} - Timestamp in milliseconds
    */
   parseSpecificDate(specificDate) {
     if (!specificDate) {
-      throw new Error('Fecha específica requerida');
+      throw new Error('Specific date required');
     }
 
-    // Si es un timestamp numérico
+    // If it's a numeric timestamp
     if (/^\d+$/.test(specificDate)) {
       const timestamp = parseInt(specificDate);
-      // Verificar si es timestamp en segundos o milisegundos
-      const isSeconds = timestamp < 10000000000; // timestamp menor a año 2001 en ms
+      // Check if it is a timestamp in seconds or milliseconds
+      const isSeconds = timestamp < 10000000000; // timestamp less than year 2001 in ms
       return isSeconds ? timestamp * 1000 : timestamp;
     }
 
-    // Si es una fecha ISO (YYYY-MM-DD o YYYY-MM-DDTHH:mm:ss)
+    // If it's an ISO date (YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss)
     const date = new Date(specificDate);
     if (isNaN(date.getTime())) {
-      throw new Error('Formato de fecha inválido. Use formato ISO (YYYY-MM-DD) o timestamp');
+      throw new Error('Invalid date format. Use ISO format (YYYY-MM-DD) or timestamp');
     }
 
     return date.getTime();
   }
 
   /**
-   * Obtiene todas las claves que coinciden con un patrón
-   * @param {string} pattern - Patrón de búsqueda
-   * @returns {Promise<Array>} - Array de claves
+   * Gets all keys matching a pattern
+   * @param {string} pattern - Search pattern
+   * @returns {Promise<Array>} - Array of keys
    */
   async getKeysByPattern(pattern) {
     try {
@@ -89,14 +89,14 @@ class CacheService {
   }
 
   /**
-   * Filtra claves por fecha de creación
-   * @param {Array} keys - Array de claves a filtrar
-   * @param {number|null} cutoffTime - Tiempo límite en milisegundos desde epoch, null para no filtrar
-   * @returns {Promise<Array>} - Array de claves filtradas
+   * Filters keys by creation date
+   * @param {Array} keys - Array of keys to filter
+   * @param {number|null} cutoffTime - Cutoff time in milliseconds from epoch, null for no filtering
+   * @returns {Promise<Array>} - Array of filtered keys
    */
   async filterKeysByTime(keys, cutoffTime) {
     if (cutoffTime === null) {
-      return keys; // No filtrar por tiempo
+      return keys; // Don't filter by time
     }
 
     const filteredKeys = [];
@@ -114,7 +114,7 @@ class CacheService {
             }
           }
         } else if (key.startsWith(this.sessionPrefix)) {
-          // Para sesiones, verificar el campo createdAt
+          // For sessions, check the createdAt field
           const sessionData = await redisClient.hGet(key, 'createdAt');
           if (sessionData) {
             const createdAt = parseInt(sessionData);
@@ -123,12 +123,12 @@ class CacheService {
             }
           }
         } else {
-          // Para otras claves, usar TTL o asumir que deben ser eliminadas
+          // For other keys, use TTL or assume they should be deleted
           filteredKeys.push(key);
         }
       } catch (error) {
         console.error(`Error checking time for key ${key}:`, error);
-        // Skip key on error — we cannot determine its age, so don't delete it
+        // Skip key on error — cannot determine its age, so don't delete it
       }
     }
 
@@ -136,10 +136,10 @@ class CacheService {
   }
 
   /**
-   * Filtra claves por sesión específica
-   * @param {Array} keys - Array de claves a filtrar
-   * @param {string} sessionId - ID de sesión a filtrar
-   * @returns {Array} - Array de claves filtradas
+   * Filters keys by specific session
+   * @param {Array} keys - Array of keys to filter
+   * @param {string} sessionId - Session ID to filter
+   * @returns {Array} - Array of filtered keys
    */
   filterKeysBySession(keys, sessionId) {
     return keys.filter(key => 
@@ -150,10 +150,10 @@ class CacheService {
   }
 
   /**
-   * Filtra claves por modelo específico
-   * @param {Array} keys - Array de claves a filtrar
-   * @param {string} modelName - Nombre del modelo a filtrar
-   * @returns {Promise<Array>} - Array de claves filtradas
+   * Filters keys by specific model
+   * @param {Array} keys - Array of keys to filter
+   * @param {string} modelName - Model name to filter
+   * @returns {Promise<Array>} - Array of filtered keys
    */
   async filterKeysByModel(keys, modelName) {
     const filteredKeys = [];
@@ -164,7 +164,7 @@ class CacheService {
           const sessionData = await redisClient.hGet(key, 'modelName');
           if (sessionData === modelName) {
             filteredKeys.push(key);
-            // También incluir los metadatos asociados
+            // Also include associated metadata
             const sessionId = key.replace(this.sessionPrefix, '');
             const metaKey = `${this.leiaMetaPrefix}${sessionId}`;
             if (keys.includes(metaKey)) {
@@ -177,7 +177,7 @@ class CacheService {
             }
           }
         } else if (key.startsWith(this.modelsPrefix)) {
-          // Incluir claves de modelos relacionadas
+          // Include related model keys
           filteredKeys.push(key);
         }
       } catch (error) {
@@ -189,10 +189,10 @@ class CacheService {
   }
 
   /**
-   * Filtra claves por metadatos específicos
-   * @param {Array} keys - Array de claves a filtrar
-   * @param {Object} metadata - Objeto con metadatos a buscar
-   * @returns {Promise<Array>} - Array de claves filtradas
+   * Filters keys by specific metadata
+   * @param {Array} keys - Array of keys to filter
+   * @param {Object} metadata - Object with metadata to search for
+   * @returns {Promise<Array>} - Array of filtered keys
    */
   async filterKeysByMetadata(keys, metadata) {
     const filteredKeys = [];
@@ -202,7 +202,7 @@ class CacheService {
         if (key.startsWith(this.leiaMetaPrefix)) {
           const storedMetadata = await redisClient.hGetAll(key);
           
-          // Verificar si todos los campos del filtro coinciden
+          // Check if all filter fields match
           let matches = true;
           for (const [field, value] of Object.entries(metadata)) {
             if (storedMetadata[field] !== String(value)) {
@@ -213,7 +213,7 @@ class CacheService {
 
           if (matches) {
             filteredKeys.push(key);
-            // También incluir la sesión asociada
+            // Also include associated session
             const sessionId = key.replace(this.leiaMetaPrefix, '');
             const sessionKey = `${this.sessionPrefix}${sessionId}`;
             if (keys.includes(sessionKey)) {
@@ -230,14 +230,14 @@ class CacheService {
   }
 
   /**
-   * Purga caché basado en criterios específicos
-   * @param {Object} options - Opciones de purga
-   * @param {string} options.f - Marco temporal ('1h', '2d', '1w', '3m', 'all')
-   * @param {string} options.date - Fecha específica (YYYY-MM-DD o timestamp) - purga antes de esta fecha
-   * @param {string} options.sessionId - ID de sesión específica (opcional)
-   * @param {string} options.provider - Nombre del modelo específico (opcional)
-   * @param {Object} options.metadata - Metadatos específicos para filtrar (opcional)
-   * @returns {Promise<Object>} - Resultado de la purga
+   * Purges cache based on specific criteria
+   * @param {Object} options - Purge options
+   * @param {string} options.f - Time frame ('1h', '2d', '1w', '3m', 'all')
+   * @param {string} options.date - Specific date (YYYY-MM-DD or timestamp) - purge before this date
+   * @param {string} options.sessionId - Specific session ID (optional)
+   * @param {string} options.provider - Specific model name (optional)
+   * @param {Object} options.metadata - Specific metadata to filter (optional)
+   * @returns {Promise<Object>} - Purge result
    */
   async purgeCache(options = {}) {
     try {
@@ -245,17 +245,17 @@ class CacheService {
       
       let cutoffTime = null;
 
-      // Parsear marco temporal o fecha específica
+      // Parse time frame or specific date
       if (date) {
         cutoffTime = this.parseSpecificDate(date);
-        console.log(`Usando fecha específica: ${new Date(cutoffTime).toISOString()}`);
+        console.log(`Using specific date: ${new Date(cutoffTime).toISOString()}`);
       } else if (f !== 'all') {
         const timeFrameMs = this.parseTimeFrame(f);
         cutoffTime = timeFrameMs ? Date.now() - timeFrameMs : null;
-        console.log(`Usando marco temporal: ${f} (cutoff: ${cutoffTime ? new Date(cutoffTime).toISOString() : 'none'})`);
+        console.log(`Using time frame: ${f} (cutoff: ${cutoffTime ? new Date(cutoffTime).toISOString() : 'none'})`);
       }
 
-      // Obtener todas las claves relevantes
+      // Get all relevant keys
       const patterns = [
         `${this.sessionPrefix}*`,
         `${this.conversationPrefix}*`,
@@ -271,39 +271,39 @@ class CacheService {
       }
 
       allKeys = [...new Set(allKeys)];
-      console.log(`Encontradas ${allKeys.length} claves en total`);
+      console.log(`Found ${allKeys.length} keys in total`);
 
-      // Aplicar filtros secuencialmente
+      // Apply filters sequentially
       let keysToDelete = allKeys;
 
-      // Filtrar por tiempo si se especifica (f o date)
+      // Filter by time if specified (f or date)
       if (cutoffTime !== null) {
         keysToDelete = await this.filterKeysByTime(keysToDelete, cutoffTime);
-        console.log(`Después del filtro de tiempo: ${keysToDelete.length} claves`);
+        console.log(`After time filter: ${keysToDelete.length} keys`);
       }
 
-      // Filtrar por sesión si se especifica
+      // Filter by session if specified
       if (sessionId) {
         keysToDelete = this.filterKeysBySession(keysToDelete, sessionId);
-        console.log(`Después del filtro de sesión: ${keysToDelete.length} claves`);
+        console.log(`After session filter: ${keysToDelete.length} keys`);
       }
 
-      // Filtrar por modelo si se especifica
+      // Filter by model if specified
       if (provider) {
         keysToDelete = await this.filterKeysByModel(keysToDelete, provider);
-        console.log(`Después del filtro de modelo: ${keysToDelete.length} claves`);
+        console.log(`After model filter: ${keysToDelete.length} keys`);
       }
 
-      // Filtrar por metadatos si se especifica
+      // Filter by metadata if specified
       if (metadata && Object.keys(metadata).length > 0) {
         keysToDelete = await this.filterKeysByMetadata(keysToDelete, metadata);
-        console.log(`Después del filtro de metadatos: ${keysToDelete.length} claves`);
+        console.log(`After metadata filter: ${keysToDelete.length} keys`);
       }
 
-      // Eliminar las claves seleccionadas
+      // Delete selected keys
       let deletedCount = 0;
       if (keysToDelete.length > 0) {
-        // Eliminar en lotes para evitar problemas de memoria
+        // Delete in batches to avoid memory issues
         const batchSize = 100;
         for (let i = 0; i < keysToDelete.length; i += batchSize) {
           const batch = keysToDelete.slice(i, i + batchSize);
@@ -325,11 +325,11 @@ class CacheService {
         }
       };
 
-      console.log('Purga de caché completada:', result);
+      console.log('Cache purge completed:', result);
       return result;
 
     } catch (error) {
-      console.error('Error purgando caché:', error);
+      console.error('Error purging cache:', error);
       return {
         success: false,
         error: error.message,
@@ -339,8 +339,8 @@ class CacheService {
   }
 
   /**
-   * Obtiene estadísticas del caché
-   * @returns {Promise<Object>} - Estadísticas del caché
+   * Gets cache statistics
+   * @returns {Promise<Object>} - Cache statistics
    */
   async getCacheStats() {
     try {
@@ -371,7 +371,7 @@ class CacheService {
         stats.total += keys.length;
       }
 
-      // Incluir claves de modelos validados
+      // Include validated models keys
       const validatedModelsExists = await redisClient.exists(this.validatedModelsKey);
       if (validatedModelsExists) {
         stats.breakdown.validatedModels = 1;
@@ -380,7 +380,7 @@ class CacheService {
 
       return stats;
     } catch (error) {
-      console.error('Error obteniendo estadísticas de caché:', error);
+      console.error('Error getting cache statistics:', error);
       throw error;
     }
   }

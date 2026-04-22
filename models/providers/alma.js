@@ -11,7 +11,7 @@ const ALMA_TEMPERATURE = parseFloat(process.env.ALMA_TEMPERATURE || '0.7');
 const STOP_TOKENS = ['<|eot_id|>', '<|end_of_text|>', '<|im_end|>', '<3|im_end|>'];
 
 /**
- * Proveedor de modelo basado en ALMA (alma.us.es)
+ * Model provider based on ALMA (alma.us.es)
  */
 class AlmaProvider extends BaseModel {
   constructor() {
@@ -21,10 +21,10 @@ class AlmaProvider extends BaseModel {
   }
 
   /**
-   * Crea una nueva sesión con ALMA
+   * Creates a new session with ALMA
    * @param {Object} options
-   * @param {string} options.instructions - Instrucciones iniciales del sistema
-   * @param {string} options.sessionId - ID de la sesión
+   * @param {string} options.instructions - Initial system instructions
+   * @param {string} options.sessionId - Session ID
    * @returns {Promise<Object>}
    */
   async createSession(options) {
@@ -40,16 +40,16 @@ class AlmaProvider extends BaseModel {
         threadId: sessionId
       };
     } catch (error) {
-      console.error('Error al crear sesión con ALMA:', error);
+      console.error('Error creating session with ALMA:', error);
       throw error;
     }
   }
 
   /**
-   * Envía un mensaje al modelo ALMA
+   * Sends a message to the ALMA model
    * @param {Object} options
-   * @param {string} options.message - Mensaje del usuario
-   * @param {Object} options.sessionData - Datos de la sesión (incluye threadId)
+   * @param {string} options.message - User message
+   * @param {Object} options.sessionData - Session data (includes threadId)
    * @returns {Promise<Object>}
    */
   async sendMessage(options) {
@@ -69,16 +69,16 @@ class AlmaProvider extends BaseModel {
 
       return { message: response };
     } catch (error) {
-      console.error('Error enviando mensaje a ALMA:', error);
+      console.error('Error sending message to ALMA:', error);
       throw error;
     }
   }
 
   /**
-   * Evalúa una solución usando ALMA
+   * Evaluates a solution using ALMA
    * @param {Object} options
-   * @param {Object} options.leiaMeta - Metadatos de la LEIA (solution, solutionFormat)
-   * @param {string} options.result - Solución proporcionada por el estudiante
+   * @param {Object} options.leiaMeta - LEIA metadata (solution, solutionFormat)
+   * @param {string} options.result - Solution provided by the student
    * @returns {Promise<Object>}
    */
   async evaluateSolution(options) {
@@ -122,15 +122,15 @@ class AlmaProvider extends BaseModel {
       const evaluationResult = JSON.parse(response);
       return evaluationResult;
     } catch (error) {
-      console.error('Error evaluando solución con ALMA:', error);
+      console.error('Error evaluating solution with ALMA:', error);
       throw error;
     }
   }
 
   /**
-   * Realiza una llamada al endpoint de ALMA
-   * @param {Array} messages - Lista de mensajes en formato {role, content}
-   * @returns {Promise<string>} - Contenido del mensaje de respuesta
+   * Makes a call to the ALMA endpoint
+   * @param {Array} messages - List of messages in {role, content} format
+   * @returns {Promise<string>} - Response message content
    */
   async _chat(messages) {
     const url = `${ALMA_HOST}/api/models/${ALMA_MODEL_NAME}/v1/chat/completions`;
