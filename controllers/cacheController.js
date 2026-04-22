@@ -1,9 +1,9 @@
 const cacheService = require('../services/cacheService');
 
 /**
- * Purga el caché basado en criterios específicos
- * @param {Object} req - Solicitud HTTP
- * @param {Object} res - Respuesta HTTP
+ * Purges cache based on specific criteria
+ * @param {Object} req - HTTP Request
+ * @param {Object} res - HTTP Response
  */
 module.exports.purgeCache = async function purgeCache(req, res) {
   try {
@@ -15,18 +15,18 @@ module.exports.purgeCache = async function purgeCache(req, res) {
       metadata 
     } = req.query;
 
-    // Validar que no se especifiquen f y date al mismo tiempo
+    // Validate that f and date are not specified at the same time
     if (f !== 'all' && date) {
       return res.status(400).send({ 
-        error: 'No puede especificar f y date al mismo tiempo. Use uno u otro.',
+        error: 'Cannot specify both f and date at the same time. Use one or the other.',
         help: {
-          f: 'Para purgar basado en tiempo relativo (ej: 1h, 2d, 1w)',
-          date: 'Para purgar antes de una fecha específica (ej: 2024-01-15 o timestamp)'
+          f: 'To purge based on relative time (e.g., 1h, 2d, 1w)',
+          date: 'To purge before a specific date (e.g., 2024-01-15 or timestamp)'
         }
       });
     }
 
-    // Validar formato de marco temporal si se proporciona
+    // Validate time frame format if provided
     if (f !== 'all') {
       try {
         cacheService.parseTimeFrame(f);
@@ -44,7 +44,7 @@ module.exports.purgeCache = async function purgeCache(req, res) {
       }
     }
 
-    // Validar formato de fecha específica si se proporciona
+    // Validate specific date format if provided
     if (date) {
       try {
         cacheService.parseSpecificDate(date);
@@ -65,20 +65,20 @@ module.exports.purgeCache = async function purgeCache(req, res) {
       }
     }
 
-    // Parsear metadatos si se proporciona como JSON string
+    // Parse metadata if provided as JSON string
     let parsedMetadata = null;
     if (metadata) {
       try {
         parsedMetadata = typeof metadata === 'string' ? JSON.parse(metadata) : metadata;
       } catch (error) {
         return res.status(400).send({ 
-          error: 'Los metadatos deben estar en formato JSON válido',
+          error: 'Metadata must be in valid JSON format',
           example: '{"leiaId": "123", "personaId": "456"}'
         });
       }
     }
 
-    // Ejecutar la purga
+    // Execute the purge
     const result = await cacheService.purgeCache({
       f,
       date,
@@ -89,12 +89,12 @@ module.exports.purgeCache = async function purgeCache(req, res) {
 
     if (result.success) {
       res.status(200).send({
-        message: 'Purga de caché completada exitosamente',
+        message: 'Cache purge completed successfully',
         ...result
       });
     } else {
       res.status(500).send({
-        error: 'Error interno durante la purga de caché',
+        error: 'Internal error during cache purge',
         details: result.error
       });
     }
@@ -102,30 +102,30 @@ module.exports.purgeCache = async function purgeCache(req, res) {
   } catch (error) {
     console.error('Error en purgeCache:', error);
     res.status(500).send({ 
-      error: 'Error interno del servidor durante la purga de caché',
+      error: 'Internal server error during cache purge',
       details: error.message
     });
   }
 };
 
 /**
- * Obtiene estadísticas del caché actual
- * @param {Object} req - Solicitud HTTP
- * @param {Object} res - Respuesta HTTP
+ * Gets current cache statistics
+ * @param {Object} req - HTTP Request
+ * @param {Object} res - HTTP Response
  */
 module.exports.getCacheStats = async function getCacheStats(req, res) {
   try {
     const stats = await cacheService.getCacheStats();
     
     res.status(200).send({
-      message: 'Estadísticas de caché obtenidas exitosamente',
+      message: 'Cache statistics obtained successfully',
       stats
     });
 
   } catch (error) {
     console.error('Error en getCacheStats:', error);
     res.status(500).send({ 
-      error: 'Error interno del servidor obteniendo estadísticas de caché',
+      error: 'Internal server error getting cache statistics',
       details: error.message
     });
   }

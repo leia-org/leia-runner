@@ -1,151 +1,85 @@
 require('dotenv').config();
 const BaseModel = require('./baseModel');
+const Errors = require('../../utils/errors');
+const ProviderState = require('../providerState');
+const { GoogleGenAI } = require('@google/genai');
 
 /**
- * Proveedor de modelo basado en Gemini Interactions API.
- * Usa estado de servidor con previous_interaction_id para mantener el contexto.
+ * Model provider based on Gemini Interactions API.
+ * Uses server state with previous_interaction_id to maintain context.
  */
 class Gemini31FlashLitePreviewProvider extends BaseModel {
   constructor() {
     super();
     this.name = 'gemini-3.1-flash-lite-preview';
+    this.apiKeyEnvVar = 'GEMINI_API_KEY';
     this.model = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite-preview';
     this.evaluationModel = process.env.GEMINI_EVALUATION_MODEL || this.model;
-    this.client = null;
   }
 
-  get apiKey() {
-    return process.env.GEMINI_API_KEY;
-  }
-
-  ensureApiKey() {
-    if (!this.apiKey) {
-      throw new Error('GEMINI_API_KEY is not configured');
-    }
-  }
-
-  getClient() {
-    this.ensureApiKey();
-
-    if (this.client) {
-      return this.client;
-    }
-
-    try {
-      const { GoogleGenAI } = require('@google/genai');
-      this.client = new GoogleGenAI({ apiKey: this.apiKey });
-      return this.client;
-    } catch (error) {
-      throw new Error(`No se pudo cargar @google/genai. Asegúrate de usar Node 20+ y tener la dependencia instalada. Detalle: ${error.message}`);
-    }
-  }
-
-  getProviderState(sessionData = {}) {
-    const providerState = sessionData.providerState && typeof sessionData.providerState === 'object'
-      ? sessionData.providerState
-      : {};
-
-    return {
-      systemInstruction: providerState.systemInstruction || 'Eres un asistente útil',
-      previousInteractionId: providerState.previousInteractionId || sessionData.threadId || ''
-    };
-  }
-
-  async createSession(options) {
-    const { instructions } = options;
-
-    return {
-      assistantId: '',
-      threadId: '',
-      providerState: {
-        systemInstruction: instructions || 'Eres un asistente útil',
-        previousInteractionId: ''
-      }
-    };
+  // Required for BaseModel
+  
+  createClient(apiKey) {
+    return new GoogleGenAI({ apiKey });
   }
 
   async sendMessage(options) {
     const { message, sessionData } = options;
-    const providerState = this.getProviderState(sessionData);
+    const state = new ProviderState(sessionData);
+    const systemInstruction = state.getSystemInstruction();
+    const previousInteractionId = state.get('previousInteractionId') || state.threadId;
 
     try {
       const interaction = await this.createInteraction({
         model: this.model,
         input: message,
-        systemInstruction: providerState.systemInstruction,
-        previousInteractionId: providerState.previousInteractionId
+        systemInstruction,
+        previousInteractionId
       });
 
       const responseMessage = this.extractTextFromInteraction(interaction);
 
       if (!responseMessage) {
-        throw new Error('Gemini no devolvió contenido de texto');
+        throw Errors.gemini.noTextContent();
       }
+
+      state.update({
+        previousInteractionId: interaction.id || previousInteractionId
+      });
 
       return {
         message: responseMessage,
-        sessionData: {
-          threadId: interaction.id || providerState.previousInteractionId,
-          providerState: {
-            ...providerState,
-            previousInteractionId: interaction.id || providerState.previousInteractionId
-          }
-        }
+        sessionData: state.buildSessionData(interaction.id || previousInteractionId),
       };
     } catch (error) {
-      console.error('Error enviando mensaje a Gemini:', error);
-      throw error;
+      throw Errors.gemini.messageSendError(error);
     }
   }
 
-  async evaluateSolution(options) {
-    const { leiaMeta, result } = options;
-    const { solution, solutionFormat, evaluationPrompt } = leiaMeta;
+  /**
+   * Performs the call to the Gemini API and returns the structured evaluation.
+   * Called by BaseModel.evaluateSolution.
+   * @param {string} prompt - Already built evaluation prompt
+   * @returns {Promise<Object>} - { score, evaluation }
+   */
+  async generateEvaluationResponse(prompt) {
+    const interaction = await this.createInteraction({
+      model: this.evaluationModel,
+      input: prompt,
+      systemInstruction: 'You are an expert evaluator. Your task is to evaluate solutions to problems and provide detailed feedback.',
+      responseFormat: this.getEvaluationResponseFormat()
+    });
 
-    try {
-      const prompt = `
-        Evaluate the following solution for a problem:
+    const responseText = this.extractTextFromInteraction(interaction);
 
-        Expected solution:
-        ${solution}
-
-        Provided solution:
-        ${result}
-
-        The Format to compare is:
-        ${solutionFormat}
-
-        Evaluate the provided solution by comparing it with the expected solution.
-        Assign a score between 0 and 10, where:
-        - 10 means the solution is perfect
-        - 0 means the solution is completely incorrect
-        Provide a detailed evaluation in Markdown format.
-
-        Respond ONLY with a JSON object with:
-        - score: number between 0 and 10
-        - evaluation: detailed evaluation in Markdown format
-
-        ${evaluationPrompt || ''}`;
-
-      const interaction = await this.createInteraction({
-        model: this.evaluationModel,
-        input: prompt,
-        systemInstruction: 'You are an expert evaluator. Your task is to evaluate solutions to problems and provide detailed feedback.',
-        responseFormat: this.getEvaluationResponseFormat()
-      });
-
-      const responseText = this.extractTextFromInteraction(interaction);
-
-      if (!responseText) {
-        throw new Error('Gemini no devolvió contenido para la evaluación');
-      }
-
-      return JSON.parse(this.sanitizeJsonResponse(responseText));
-    } catch (error) {
-      console.error('Error evaluando solución con Gemini:', error);
-      throw error;
+    if (!responseText) {
+      throw Errors.gemini.noEvaluationContent();
     }
+
+    return JSON.parse(this.sanitizeJsonResponse(responseText));
   }
+
+  // Helper methods 
 
   getEvaluationResponseFormat() {
     return {
@@ -204,7 +138,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     const interaction = await this.getClient().interactions.create(requestBody);
 
     if (interaction.status && interaction.status !== 'completed') {
-      throw new Error(`La interacción de Gemini terminó con estado: ${interaction.status}`);
+      throw Errors.gemini.interactionStatusError(interaction.status);
     }
 
     return interaction;

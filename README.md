@@ -22,7 +22,6 @@ npm start
 npm dev
 ```
 
-
 ## API
 
 The API provides the following endpoints:
@@ -34,11 +33,13 @@ POST /api/v1/leias
 ```
 
 **Headers:**
+
 ```
 Authorization: Bearer YOUR_RUNNER_KEY
 ```
 
 **Body:**
+
 ```json
 {
   "sessionId": "unique-session-id",
@@ -56,6 +57,7 @@ Authorization: Bearer YOUR_RUNNER_KEY
 ```
 
 **Responses:**
+
 - `201 Created`: LEIA created successfully
 - `400 Bad Request`: Required parameters missing
 - `401 Unauthorized`: Invalid authentication token
@@ -69,11 +71,13 @@ POST /api/v1/leias/:sessionId/messages
 ```
 
 **Headers:**
+
 ```
 Authorization: Bearer YOUR_RUNNER_KEY
 ```
 
 **Body:**
+
 ```json
 {
   "message": "Your message for LEIA"
@@ -81,6 +85,7 @@ Authorization: Bearer YOUR_RUNNER_KEY
 ```
 
 **Responses:**
+
 - `200 OK`: Message processed successfully
 - `400 Bad Request`: Required parameters missing
 - `401 Unauthorized`: Invalid authentication token
@@ -94,19 +99,22 @@ GET /api/v1/models
 ```
 
 **Headers:**
+
 ```
 Authorization: Bearer YOUR_RUNNER_KEY
 ```
 
 **Response:**
+
 ```json
 {
-  "models": ["openai", "openai-assistant", "openai-advanced"],
+  "models": ["openai", "openai-responses", "openai-advanced"],
   "default": "openai-advanced"
 }
 ```
 
 **Responses:**
+
 - `200 OK`: List of models retrieved successfully
 - `401 Unauthorized`: Invalid authentication token
 - `500 Internal Server Error`: Internal server error

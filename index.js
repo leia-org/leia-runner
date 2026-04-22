@@ -38,7 +38,7 @@ const deploy = async () => {
             console.log("________________________________________________________________");
         });
     } catch (error) {
-        console.error('Error al iniciar la aplicación:', error);
+        console.error('Error starting the application:', error);
         process.exit(1);
     }
 }

@@ -6,7 +6,7 @@ const ollama = new Ollama({ host: process.env.OLLAMA_HOST || 'http://localhost:1
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'gemma3:1b';
 
 /**
- * Proveedor de modelo basado en Ollama (modelos locales)
+ * Model provider based on Ollama (local models)
  */
 class OllamaProvider extends BaseModel {
   constructor() {
@@ -16,11 +16,11 @@ class OllamaProvider extends BaseModel {
   }
 
   /**
-   * Crea una nueva sesión con Ollama
-   * @param {Object} options - Opciones para crear la sesión
-   * @param {string} options.instructions - Instrucciones iniciales para el asistente
-   * @param {string} options.sessionId - ID de la sesión
-   * @returns {Promise<Object>} - Detalles de la sesión creada
+   * Creates a new session with Ollama
+   * @param {Object} options - Options for creating the session
+   * @param {string} options.instructions - Initial instructions for the assistant
+   * @param {string} options.sessionId - Session ID
+   * @returns {Promise<Object>} - Details of the created session
    */
   async createSession(options) {
     const { instructions, sessionId } = options;
@@ -38,18 +38,18 @@ class OllamaProvider extends BaseModel {
         threadId: sessionId
       };
     } catch (error) {
-      console.error('Error al crear sesión con Ollama:', error);
+      console.error('Error creating session with Ollama:', error);
       throw error;
     }
   }
   
   /**
-   * Envía un mensaje al modelo
-   * @param {Object} options - Opciones para enviar el mensaje
-   * @param {string} options.sessionId - ID de la sesión
-   * @param {string} options.message - Mensaje a enviar
-   * @param {Object} options.sessionData - Datos de la sesión
-   * @returns {Promise<Object>} - Respuesta del modelo
+   * Sends a message to the model
+   * @param {Object} options - Options for sending the message
+   * @param {string} options.sessionId - Session ID
+   * @param {string} options.message - Message to send
+   * @param {Object} options.sessionData - Session data
+   * @returns {Promise<Object>} - Model response
    */
 
   async sendMessage(options) {
@@ -57,18 +57,18 @@ class OllamaProvider extends BaseModel {
     const { threadId } = sessionData;
     
     try {
-      // Inicializar thread si no existe (puede pasar si el servidor se reinició)
+      // Initialize thread if it doesn't exist (might happen if server restarted)
       if (!this.threads[threadId]) {
         this.threads[threadId] = [];
       }
 
-      // Añadir mensaje al thread
+      // Add message to thread
       this.threads[threadId].push({
         role: "user",
         content: message
       });
 
-      // Transformar mensajes al formato que Ollama espera (content como string)
+      // Transform messages to the format Ollama expects (content as string)
       const ollamaMessages = this.threads[threadId].map(msg => ({
         role: msg.role,
         content: Array.isArray(msg.content)
@@ -92,7 +92,7 @@ class OllamaProvider extends BaseModel {
       return { message: messageContent };
     
     } catch (error) {
-      console.error('Error enviando mensaje a Ollama:', error);
+      console.error('Error sending message to Ollama:', error);
       throw error;
     }
   }
@@ -152,7 +152,7 @@ class OllamaProvider extends BaseModel {
       const evaluationResult = JSON.parse(messageContent);
       return evaluationResult;
     } catch (error){
-      console.error('Error evaluando solución con Ollama:', error);
+      console.error('Error evaluating solution with Ollama:', error);
       throw error;
     }
   }

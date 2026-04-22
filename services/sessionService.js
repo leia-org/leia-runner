@@ -34,7 +34,7 @@ class SessionService {
       try {
         normalizedSessionData.providerState = JSON.parse(normalizedSessionData.providerState);
       } catch (error) {
-        console.warn('No se pudo parsear providerState, se usará el valor almacenado:', error.message);
+        console.warn('Could not parse providerState, stored value will be used:', error.message);
       }
     }
 
@@ -79,22 +79,13 @@ class SessionService {
       const sessionData = {
         sessionId,
         modelName,
-        assistantId: sessionDetails.assistantId ?? '',
         threadId: sessionDetails.threadId ?? '',
         providerState: sessionDetails.providerState ?? '',
         createdAt: Date.now()
       };
       
       const key = `${this.keyPrefix}${sessionId}`;
-      await redisClient.hSet(
-        key,
-        Object.fromEntries(
-          Object.entries(sessionData).map(([key, value]) => [
-            key,
-            value !== null && value !== undefined ? String(value) : ''
-          ])
-        )
-      );
+      await redisClient.hSet(key, this.serializeSessionData(sessionData));
       await redisClient.expire(key, 86400); // 24 hours
       
       return sessionData;
@@ -160,10 +151,10 @@ class SessionService {
    */
   async storeLeiaMeta(sessionId, metadata) {
     try {
-      // Convertir el objeto metadata a un formato que Redis pueda almacenar
+      // Convert metadata object to a format Redis can store
       const redisMetadata = {};
       
-      // Asegurarse de que todos los valores sean strings
+      // Ensure all values are strings
       for (const [key, value] of Object.entries(metadata)) {
         redisMetadata[key] = value !== null && value !== undefined ? String(value) : '';
       }
