@@ -5,12 +5,16 @@ const cors = require('cors');
 const { redisClient, initRedis } = require('./config/redis');
 const modelSyncService = require('./services/modelSyncService');
 const modelManager = require('./models/modelManager');
+const oasTelemetry = require('@oas-tools/oas-telemetry');
+const path = require('path');
+const { readFileSync } = require('fs');
 
 const app = express();
 const port = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
+app.use(oasTelemetry({ general: { spec: readFileSync(path.join(__dirname, 'api', 'openapi.yml'), { encoding: 'utf8', flag: 'r' }) } }));
 app.use(express.json());
 
 // Load OpenAPI specification
@@ -39,6 +43,8 @@ async function initializeServer() {
 
     // Start the server
     app.listen(port, () => {
+      console.log(`Swagger UI available at http://localhost:${port}/docs`);
+      console.log(`Telemetry available at http://localhost:${port}/telemetry`);
       console.log(`Server running on port ${port}`);
     });
   } catch (error) {
