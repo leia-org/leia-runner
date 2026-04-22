@@ -14,6 +14,7 @@
     "dev": "nodemon server.js",
     "test": "jest",
     "test:provider": "vitest run tests/providerIntegration.test.js",
+    "test:alma": "vitest run tests/almaIntegration.test.js",
     "setup": "npm install",
     "update-deps": "npm update"
   },
