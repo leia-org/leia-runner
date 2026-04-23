@@ -138,6 +138,31 @@ class SessionService {
   }
 
   /**
+   * Clears the cached conversation associated with a session, if the model supports it.
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<void>}
+   */
+  async clearConversation(sessionId) {
+    try {
+      const sessionData = await this.getSession(sessionId);
+
+      if (!sessionData) {
+        return;
+      }
+
+      const model = modelManager.getModel(sessionData.modelName);
+      const conversationStore = model?.conversationStore;
+
+      if (conversationStore && typeof conversationStore.clearConversation === 'function') {
+        await conversationStore.clearConversation(sessionId);
+      }
+    } catch (error) {
+      console.error(`Error clearing conversation cache for session ${sessionId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
    * Stores LEIA metadata associated with the session
    * @param {string} sessionId - Session ID
    * @param {Object} metadata - LEIA metadata
