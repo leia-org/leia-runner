@@ -1,8 +1,14 @@
 import { describe, expect, beforeAll, afterAll, test } from 'vitest';
+import { z } from 'zod';
 require('dotenv').config();
 
 const { initRedis, redisClient } = require('../config/redis');
 const almaProvider = require('../models/providers/alma');
+
+const EvaluationSchema = z.object({
+  score: z.number().min(0).max(10),
+  evaluation: z.string().min(1)
+});
 
 describe('ALMA integration tests', () => {
   beforeAll(async () => {
@@ -64,12 +70,19 @@ Respond ONLY with a JSON object in the following format:
 }`;
 
     const response = await almaProvider.generateEvaluationResponse(prompt);
+    
+    // Validate structure strictly using Zod
+    const parsedResponse = EvaluationSchema.parse(response);
 
-    expect(response).toBeDefined();
-    expect(typeof response.score).toBe('number');
-    expect(response.score).toBeGreaterThanOrEqual(0);
-    expect(response.score).toBeLessThanOrEqual(10);
-    expect(typeof response.evaluation).toBe('string');
-    expect(response.evaluation.length).toBeGreaterThan(0);
+    expect(parsedResponse).toBeDefined();
+    expect(parsedResponse.score).toBeGreaterThanOrEqual(0);
+    expect(parsedResponse.score).toBeLessThanOrEqual(10);
+    expect(parsedResponse.evaluation.length).toBeGreaterThan(0);
+  });
+
+  test('generateEvaluationResponse throws error on invalid JSON response', { timeout: 120000 }, async () => {
+    const prompt = 'Please reply ONLY with the word "Hello". Do not use JSON format.';
+    
+    await expect(almaProvider.generateEvaluationResponse(prompt)).rejects.toThrow('Error evaluating the solution with ALMA');
   });
 });
