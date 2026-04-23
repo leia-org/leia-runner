@@ -34,7 +34,7 @@ class SessionService {
       try {
         normalizedSessionData.providerState = JSON.parse(normalizedSessionData.providerState);
       } catch (error) {
-        console.warn('No se pudo parsear providerState, se usará el valor almacenado:', error.message);
+        console.warn('Could not parse providerState, stored value will be used:', error.message);
       }
     }
 
@@ -71,7 +71,8 @@ class SessionService {
       
       // Create a session with the selected provider
       const sessionDetails = await model.createSession({
-        instructions: prompt
+        instructions: prompt,
+        sessionId
       });
       
       // Save session information in Redis
@@ -83,10 +84,9 @@ class SessionService {
         createdAt: Date.now()
       };
       
-      await redisClient.hSet(
-        `${this.keyPrefix}${sessionId}`,
-        this.serializeSessionData(sessionData)
-      );
+      const key = `${this.keyPrefix}${sessionId}`;
+      await redisClient.hSet(key, this.serializeSessionData(sessionData));
+      await redisClient.expire(key, 86400); // 24 hours
       
       return sessionData;
     } catch (error) {
@@ -114,7 +114,13 @@ class SessionService {
       if (!sessionData) {
         return null; // Return null instead of throwing an error
       }
-      
+
+      // Refresh TTL on activity so active sessions don't expire mid-conversation
+      await redisClient.expire(`${this.keyPrefix}${sessionId}`, 86400);
+      if (await redisClient.exists(`${this.leiaMetaPrefix}${sessionId}`)) {
+        await redisClient.expire(`${this.leiaMetaPrefix}${sessionId}`, 86400);
+      }
+
       // Get the model for this session
       const model = modelManager.getModel(sessionData.modelName);
       
@@ -145,18 +151,17 @@ class SessionService {
    */
   async storeLeiaMeta(sessionId, metadata) {
     try {
-      // Convertir el objeto metadata a un formato que Redis pueda almacenar
+      // Convert metadata object to a format Redis can store
       const redisMetadata = {};
       
-      // Asegurarse de que todos los valores sean strings
+      // Ensure all values are strings
       for (const [key, value] of Object.entries(metadata)) {
         redisMetadata[key] = value !== null && value !== undefined ? String(value) : '';
       }
       
-      await redisClient.hSet(
-        `${this.leiaMetaPrefix}${sessionId}`,
-        redisMetadata
-      );
+      const metaKey = `${this.leiaMetaPrefix}${sessionId}`;
+      await redisClient.hSet(metaKey, redisMetadata);
+      await redisClient.expire(metaKey, 86400); // 24 hours
     } catch (error) {
       console.error(`Error storing LEIA metadata for session ${sessionId}:`, error);
       throw error;

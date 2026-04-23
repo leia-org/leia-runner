@@ -31,10 +31,10 @@ const EvaluationResponseFormat = {
 
 class EvaluationService {
   /**
-   * Evalúa una solución de estudiante contra la solución esperada
-   * @param {Object} leia - Objeto LEIA con la configuración del problema
-   * @param {string} result - Solución proporcionada por el estudiante
-   * @returns {Promise<Object>} - Resultado de la evaluación
+   * Evaluates a student solution against the expected solution
+   * @param {Object} leia - LEIA object with problem configuration
+   * @param {string} result - Solution provided by the student
+   * @returns {Promise<Object>} - Evaluation result
    */
   async evaluateSolution({ leia, result }) {
     if (!leia || !result) {
@@ -91,10 +91,10 @@ ${evaluationPrompt}`
   }
 
   /**
-   * Genera un prompt específico para evaluación de diagramas UML
-   * @param {string} studentSolution - Solución del estudiante
-   * @param {string} exerciseSolution - Solución esperada del ejercicio
-   * @returns {string} - Prompt generado
+   * Generates a specific prompt for UML diagram evaluation
+   * @param {string} studentSolution - Student solution
+   * @param {string} exerciseSolution - Expected exercise solution
+   * @returns {string} - Generated prompt
    */
   generateUMLDiagramPrompt(studentSolution, exerciseSolution) {
     return `Evaluate the following UML diagram:
@@ -123,11 +123,11 @@ The response must be in markdown format. Do not use a main title since this will
   }
 
   /**
-   * Genera un prompt genérico para cualquier tipo de problema y formato de solución
-   * @param {string} studentSolution - Solución del estudiante
-   * @param {string} exerciseSolution - Solución esperada del ejercicio
-   * @param {string} solutionFormat - Formato de la solución
-   * @returns {string} - Prompt generado
+   * Generates a generic prompt for any problem type and solution format
+   * @param {string} studentSolution - Student solution
+   * @param {string} exerciseSolution - Expected exercise solution
+   * @param {string} solutionFormat - Solution format
+   * @returns {string} - Generated prompt
    */
   generateGenericPrompt(studentSolution, exerciseSolution, solutionFormat) {
     return `Evaluate the following solution (${solutionFormat} format):

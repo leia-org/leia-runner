@@ -12,7 +12,7 @@ const EvaluationSchema = z.object({
 });
 
 /**
- * Proveedor de OpenAI basado en Responses + Conversations.
+ * OpenAI provider based on Responses + Conversations.
  */
 class OpenAIResponsesProvider extends BaseModel {
     constructor() {
@@ -23,7 +23,7 @@ class OpenAIResponsesProvider extends BaseModel {
         this.evaluationModel = process.env.OPENAI_EVALUATION_MODEL || 'gpt-5.4-mini';
     }
 
-    // Requerido para el baseModel
+    // Required for BaseModel
 
     createClient(apiKey) {
         return new OpenAI({ apiKey });
@@ -39,7 +39,7 @@ class OpenAIResponsesProvider extends BaseModel {
             if (!conversationId) {
                 if (sessionData?.threadId) {
                     console.warn(
-                        'Sesion legacy de Assistants detectada. Se iniciara una nueva conversacion sin historial previo.'
+                        'Legacy Assistants session detected. A new conversation will be started without previous history.'
                     );
                 }
 
@@ -86,9 +86,9 @@ class OpenAIResponsesProvider extends BaseModel {
     }
 
     /**
-     * Realiza la llamada al API de OpenAI y devuelve la evaluación estructurada.
-     * Invocado por BaseModel.evaluateSolution.
-     * @param {string} prompt - Prompt de evaluación ya construido
+     * Performs the call to the OpenAI API and returns the structured evaluation.
+     * Called by BaseModel.evaluateSolution.
+     * @param {string} prompt - Already built evaluation prompt
      * @returns {Promise<Object>} - { score, evaluation }
      */
     async generateEvaluationResponse(prompt) {
@@ -121,7 +121,7 @@ class OpenAIResponsesProvider extends BaseModel {
         }
     }
 
-    // Métodos auxiliares
+    // Helper methods
 
     async createConversation() {
         this.ensureApiKey();
