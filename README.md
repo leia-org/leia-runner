@@ -15,6 +15,7 @@ API for interacting with LEIA instances.
 Use `.env.example` as reference. For conversation cache behavior in Redis, you can control it with one switch:
 
 - Global: `CONVERSATION_CACHE_ENABLED=true|false`
+- TTL de conversaciones: `CONVERSATION_HISTORY_TTL=2629800` (seconds; default 2629800 = 1 month)
 - Provider overrides:
   - `OPENAI_CONVERSATION_CACHE_ENABLED=true|false`
   - `GEMINI_CONVERSATION_CACHE_ENABLED=true|false`

@@ -17,6 +17,7 @@ class ConversationStore {
     this.basePrefix = 'conversations:';
     this.defaultMaxMessages = options.defaultMaxMessages || 60;
     this.maxMessages = this.parseMaxMessages();
+    this.ttlSeconds = process.env.CONVERSATION_HISTORY_TTL || 2629800;
     this.cacheEnabled = this.isCacheEnabled(options.enabled);
   }
 
@@ -73,6 +74,16 @@ class ConversationStore {
     }
 
     return parsed;
+  }
+
+  /**
+   * Refreshes the TTL for a conversation key.
+   * @private
+   * @param {string} key - Redis conversation key
+   * @returns {Promise<void>}
+   */
+  async refreshConversationTtl(key) {
+    await redisClient.expire(key, this.ttlSeconds);
   }
 
   getConversationKey(sessionId) {
@@ -149,6 +160,7 @@ class ConversationStore {
     const key = this.getConversationKey(sessionId);
     await redisClient.rPush(key, JSON.stringify(message));
     await redisClient.lTrim(key, -this.maxMessages, -1);
+    await this.refreshConversationTtl(key);
   }
 
   /**
@@ -174,6 +186,7 @@ class ConversationStore {
 
     if (!firstRawMessage) {
       await redisClient.rPush(key, JSON.stringify(normalizedSystemMessage));
+      await this.refreshConversationTtl(key);
       return;
     }
 
@@ -191,18 +204,22 @@ class ConversationStore {
 
     if (!normalizedFirstMessage) {
       await redisClient.lSet(key, 0, JSON.stringify(normalizedSystemMessage));
+      await this.refreshConversationTtl(key);
       return;
     }
 
     if (normalizedFirstMessage.role !== 'system') {
       await redisClient.lPush(key, JSON.stringify(normalizedSystemMessage));
       await redisClient.lTrim(key, -this.maxMessages, -1);
+      await this.refreshConversationTtl(key);
       return;
     }
 
     if (normalizedFirstMessage.content !== normalizedSystemMessage.content) {
       await redisClient.lSet(key, 0, JSON.stringify(normalizedSystemMessage));
     }
+
+    await this.refreshConversationTtl(key);
   }
 
   /**
