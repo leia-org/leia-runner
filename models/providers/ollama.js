@@ -2,7 +2,6 @@ require('dotenv').config();
 const BaseModel = require('./baseModel');
 const Errors = require('../../utils/errors');
 const ProviderState = require('../providerState');
-const { ConversationStore } = require('../conversationStore');
 
 class OllamaProvider extends BaseModel {
   constructor() {
@@ -11,10 +10,6 @@ class OllamaProvider extends BaseModel {
     this.model = process.env.OLLAMA_MODEL || 'llama3.1:8b';
     this.evaluationModel = process.env.OLLAMA_EVALUATION_MODEL || this.model;
     this.baseUrl = (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/+$/, '');
-    this.conversationStore = new ConversationStore({
-      providerName: 'ollama',
-      defaultMaxMessages: 60
-    });
   }
 
   // Requerido por BaseModel
@@ -36,7 +31,7 @@ class OllamaProvider extends BaseModel {
     const systemInstruction = state.getSystemInstruction();
 
     try {
-      const conversationMessages = await this.conversationStore.buildConversationForRequest(
+      const conversationMessages = await this.buildConversationForRequest(
         sessionId,
         systemInstruction,
         message
@@ -53,10 +48,10 @@ class OllamaProvider extends BaseModel {
         throw Errors.ollama.noTextContent();
       }
 
-      await this.conversationStore.storeAssistantResponse(sessionId, responseMessage);
+      await this.storeAssistantResponse(sessionId, responseMessage);
 
       state.update({
-        conversationKey: this.conversationStore.getConversationKey(sessionId),
+        conversationKey: this.getConversationKey(sessionId),
         model: this.model,
       });
 

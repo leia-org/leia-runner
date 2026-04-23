@@ -5,7 +5,6 @@ const { zodTextFormat } = require('openai/helpers/zod');
 const BaseModel = require('./baseModel');
 const Errors = require('../../utils/errors');
 const ProviderState = require('../providerState');
-const { ConversationStore } = require('../conversationStore');
 
 const EvaluationSchema = z.object({
     score: z.number().min(0).max(10),
@@ -22,10 +21,6 @@ class OpenAIResponsesProvider extends BaseModel {
         this.apiKeyEnvVar = 'OPENAI_API_KEY';
         this.model = 'gpt-5.4-mini';
         this.evaluationModel = process.env.OPENAI_EVALUATION_MODEL || 'gpt-5.4-mini';
-        this.conversationStore = new ConversationStore({
-            providerName: 'openai',
-            defaultMaxMessages: 60,
-        });
     }
 
     // Requerido para el baseModel
@@ -57,8 +52,8 @@ class OpenAIResponsesProvider extends BaseModel {
                 conversationId = conversation.id;
             }
 
-            await this.conversationStore.ensureSystemMessage(sessionId, systemInstruction);
-            await this.conversationStore.appendMessage(sessionId, 'user', message);
+            await this.ensureSystemMessage(sessionId, systemInstruction);
+            await this.appendMessage(sessionId, 'user', message);
 
             const response = await this.getClient().responses.create({
                 model: this.model,
@@ -83,11 +78,11 @@ class OpenAIResponsesProvider extends BaseModel {
                 throw Errors.openAI.noTextContent();
             }
 
-            await this.conversationStore.storeAssistantResponse(sessionId, responseMessage);
+            await this.storeAssistantResponse(sessionId, responseMessage);
 
             state.update({
                 conversationId,
-                conversationKey: this.conversationStore.getConversationKey(sessionId),
+                conversationKey: this.getConversationKey(sessionId),
                 systemInstruction,
                 lastResponseId: response.id || state.get('lastResponseId'),
             });

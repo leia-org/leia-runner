@@ -151,10 +151,9 @@ class SessionService {
       }
 
       const model = modelManager.getModel(sessionData.modelName);
-      const conversationStore = model?.conversationStore;
 
-      if (conversationStore && typeof conversationStore.clearConversation === 'function') {
-        await conversationStore.clearConversation(sessionId);
+      if (model && typeof model.clearConversation === 'function') {
+        await model.clearConversation(sessionId);
       }
     } catch (error) {
       console.error(`Error clearing conversation cache for session ${sessionId}:`, error);
