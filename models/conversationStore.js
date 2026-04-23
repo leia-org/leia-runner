@@ -77,8 +77,7 @@ class ConversationStore {
 
   getConversationKey(sessionId) {
     const normalizedSessionId = typeof sessionId === 'string' ? sessionId.trim() : '';
-    const providerSegment = this.providerName || 'generic';
-    return `${this.basePrefix}${providerSegment}:${normalizedSessionId}`;
+    return `${this.basePrefix}${normalizedSessionId}`;
   }
 
   /**

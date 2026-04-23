@@ -11,7 +11,7 @@ class CacheService {
 
   /**
    * Obtiene el sessionId desde una clave de conversación.
-   * Formato esperado: conversations:<providerName>:<sessionId>
+    * Formato esperado: conversations:<sessionId>
    * @param {string} key - Clave de conversación
    * @returns {string} sessionId o string vacío si no se puede extraer
    */
@@ -21,7 +21,7 @@ class CacheService {
     }
 
     const parts = key.split(':');
-    return parts.length >= 3 ? parts[parts.length - 1] : '';
+    return parts.length >= 2 ? parts[parts.length - 1] : '';
   }
 
   /**
