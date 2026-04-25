@@ -18,7 +18,7 @@ class OpenAIResponsesProvider extends BaseModel {
     constructor() {
         super();
         this.name = 'openai-responses';
-        this.apiKeyEnvVar = 'OPENAI_API_KEY';
+        this.envVar = 'OPENAI';
         this.model = 'gpt-5.4-mini';
         this.evaluationModel = process.env.OPENAI_EVALUATION_MODEL || 'gpt-5.4-mini';
     }

@@ -1,18 +1,18 @@
 const Errors = require('../../utils/errors');
 const Prompts = require('../../utils/prompts');
 const ProviderState = require('../providerState');
+const Environment = require('../../utils/environment');
 const { redisClient } = require('../../config/redis');
 
 class BaseModel {
   constructor() {
     this.name = 'base';
-    this.apiKeyEnvVar = '';
+    this.envVar = null;
     this._client = null;
     this.conversationPrefix = 'conversations:';
     this.defaultConversationMaxMessages = 60;
     this.defaultConversationTtlSeconds = 2629800;
   }
-
 
   // conversationStore methods implemented for all providers by default
 
@@ -24,79 +24,6 @@ class BaseModel {
   getConversationKey(sessionId) {
     const normalizedSessionId = typeof sessionId === 'string' ? sessionId.trim() : '';
     return `${this.conversationPrefix}${normalizedSessionId}`;
-  }
-
-  /**
-   * Obtiene el prefijo de variables de entorno para configuración de conversación.
-   * @returns {string}
-   */
-  getConversationEnvPrefix() {
-    const apiKeyEnvVar = typeof this.apiKeyEnvVar === 'string' ? this.apiKeyEnvVar.trim() : '';
-
-    if (apiKeyEnvVar.endsWith('_API_KEY')) {
-      return apiKeyEnvVar.slice(0, -'_API_KEY'.length);
-    }
-
-    const providerName = typeof this.name === 'string' ? this.name.trim() : '';
-    return providerName.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
-  }
-
-  /**
-   * Determina si el cache de conversación está habilitado.
-   * Prioriza variable por proveedor y luego la global.
-   * @returns {boolean}
-   */
-  isConversationCacheEnabled() {
-    const envPrefix = this.getConversationEnvPrefix();
-    let rawValue;
-
-    if (envPrefix) {
-      const providerEnvVar = `${envPrefix}_CONVERSATION_CACHE_ENABLED`;
-      rawValue = process.env[providerEnvVar];
-    }
-
-    if (rawValue === undefined) {
-      rawValue = process.env.CONVERSATION_CACHE_ENABLED;
-    }
-
-    if (rawValue === undefined || rawValue === null || rawValue === '') {
-      return true;
-    }
-
-    const normalized = String(rawValue).trim().toLowerCase();
-    if (['1', 'true', 'yes', 'on'].includes(normalized)) {
-      return true;
-    }
-    if (['0', 'false', 'no', 'off'].includes(normalized)) {
-      return false;
-    }
-
-    return true;
-  }
-
-  /**
-   * Obtiene el límite de historial de conversación para el proveedor actual.
-   * @returns {number}
-   */
-  getConversationMaxMessages() {
-    const envPrefix = this.getConversationEnvPrefix();
-    let rawValue;
-
-    if (envPrefix) {
-      const providerEnvVar = `${envPrefix}_HISTORY_MAX_MESSAGES`;
-      rawValue = process.env[providerEnvVar];
-    }
-
-    if (!rawValue) {
-      rawValue = process.env.CONVERSATION_HISTORY_MAX_MESSAGES;
-    }
-
-    const parsed = Number.parseInt(rawValue || this.defaultConversationMaxMessages, 10);
-    if (!Number.isInteger(parsed) || parsed <= 0) {
-      return this.defaultConversationMaxMessages;
-    }
-
-    return parsed;
   }
 
   /**
@@ -142,7 +69,7 @@ class BaseModel {
    * @returns {Promise<Array>}
    */
   async getConversation(sessionId) {
-    if (!this.isConversationCacheEnabled()) {
+    if (!Environment.isCacheEnabled(this.envVar)) {
       return [];
     }
 
@@ -170,12 +97,12 @@ class BaseModel {
   async appendMessage(sessionId, role, content) {
     const message = this.normalizeConversationMessage(role, content);
 
-    if (!message || !this.isConversationCacheEnabled()) {
+    if (!message || !Environment.isCacheEnabled(this.envVar)) {
       return;
     }
 
     const key = this.getConversationKey(sessionId);
-    const maxMessages = this.getConversationMaxMessages();
+    const maxMessages = Environment.getConversationMaxMessages(this.envVar);
     await redisClient.rPush(key, JSON.stringify(message));
     await redisClient.lTrim(key, -maxMessages, -1);
     await redisClient.expire(key, this.getConversationTtlSeconds());
@@ -190,12 +117,12 @@ class BaseModel {
   async ensureSystemMessage(sessionId, systemInstruction) {
     const normalizedSystemMessage = this.normalizeConversationMessage('system', systemInstruction);
 
-    if (!normalizedSystemMessage || !this.isConversationCacheEnabled()) {
+    if (!normalizedSystemMessage || !Environment.isCacheEnabled(this.envVar)) {
       return;
     }
 
     const key = this.getConversationKey(sessionId);
-    const maxMessages = this.getConversationMaxMessages();
+    const maxMessages = Environment.getConversationMaxMessages(this.envVar);
     const firstRawMessage = await redisClient.lIndex(key, 0);
 
     if (!firstRawMessage) {
@@ -244,7 +171,7 @@ class BaseModel {
    * @returns {Promise<Array>}
    */
   async buildConversationForRequest(sessionId, systemInstruction, userMessage) {
-    if (!this.isConversationCacheEnabled()) {
+    if (!Environment.isCacheEnabled(this.envVar)) {
       const fallbackConversation = [];
       const normalizedSystemMessage = this.normalizeConversationMessage('system', systemInstruction);
       const normalizedUserMessage = this.normalizeConversationMessage('user', userMessage);
@@ -281,7 +208,7 @@ class BaseModel {
    * @returns {Promise<void>}
    */
   async clearConversation(sessionId) {
-    if (!this.isConversationCacheEnabled()) {
+    if (!Environment.isCacheEnabled(this.envVar)) {
       return;
     }
 
@@ -295,7 +222,7 @@ class BaseModel {
    * @returns {string|undefined}
    */
   getApiKey() {
-    return process.env[this.apiKeyEnvVar];
+    return process.env[`${this.envVar}_API_KEY`];
   }
 
   /**
@@ -303,14 +230,16 @@ class BaseModel {
    * @returns {string}
    */
   ensureApiKey() {
-    if (!this.apiKeyEnvVar) {
-      throw new Error('apiKeyEnvVar is not configured for this provider');
+    const envPrefix = this.envVar;
+
+    if (!envPrefix) {
+      throw new Error('envVar is not configured for this provider');
     }
 
     const apiKey = this.getApiKey();
 
     if (!apiKey) {
-      throw new Error(`${this.apiKeyEnvVar} is not configured`);
+      throw new Error(`${envPrefix}_API_KEY is not configured`);
     }
 
     return apiKey;

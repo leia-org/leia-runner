@@ -12,7 +12,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
   constructor() {
     super();
     this.name = 'gemini-3.1-flash-lite-preview';
-    this.apiKeyEnvVar = 'GEMINI_API_KEY';
+    this.envVar = 'GEMINI';
     this.model = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite-preview';
     this.evaluationModel = process.env.GEMINI_EVALUATION_MODEL || this.model;
   }
