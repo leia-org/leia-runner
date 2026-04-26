@@ -39,11 +39,11 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
   }
 
   extractResponseMessage(response) {
-    if (!interaction || !Array.isArray(interaction.outputs)) {
+    if (!response || !Array.isArray(response.outputs)) {
       return '';
     }
 
-    return interaction.outputs
+    return response.outputs
       .filter(output => output?.type === 'text' && typeof output.text === 'string')
       .map(output => output.text.trim())
       .filter(Boolean)
@@ -75,7 +75,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
       responseFormat: this.getEvaluationResponseFormat()
     });
 
-    const responseText = this.extractTextFromInteraction(interaction);
+    const responseText = this.extractResponseMessage(interaction);
 
     if (!responseText) {
       throw Errors.gemini.noEvaluationContent();
