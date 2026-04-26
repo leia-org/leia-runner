@@ -1,7 +1,6 @@
 require('dotenv').config();
 const BaseModel = require('./baseModel');
 const Errors = require('../../utils/errors');
-const ProviderState = require('../providerState');
 const { GoogleGenAI } = require('@google/genai');
 
 /**
@@ -17,54 +16,41 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     this.evaluationModel = process.env.GEMINI_EVALUATION_MODEL || this.model;
   }
 
-  // Requerido para el baseModel
+  // Requerido por el baseModel
   
   createClient(apiKey) {
     return new GoogleGenAI({ apiKey });
   }
 
-  async sendMessage(options) {
-    const { sessionId, message, sessionData } = options;
-
-    if (!sessionId) {
-      throw Errors.gemini.missingSessionId();
-    }
-
-    const state = new ProviderState(sessionData);
-    const systemInstruction = state.getSystemInstruction();
+  async buildModelResponse(context) {
+    const { state, systemInstruction, message } = context;
     const previousInteractionId = state.get('previousInteractionId') || state.threadId;
 
-    try {
-      await this.ensureSystemMessage(sessionId, systemInstruction);
-      await this.appendMessage(sessionId, 'user', message);
+    const interaction = await this.createInteraction({
+      model: this.model,
+      input: message,
+      systemInstruction,
+      previousInteractionId,
+    });
 
-      const interaction = await this.createInteraction({
-        model: this.model,
-        input: message,
-        systemInstruction,
-        previousInteractionId
-      });
+    context.previousInteractionId = interaction.id || previousInteractionId;
 
-      const responseMessage = this.extractTextFromInteraction(interaction);
+    return interaction;
+  }
 
-      if (!responseMessage) {
-        throw Errors.gemini.noTextContent();
-      }
+  extractResponseMessage(response) {
+    return this.extractTextFromInteraction(response);
+  }
 
-      await this.storeAssistantResponse(sessionId, responseMessage);
+  async buildSessionDataAfterMessage(context) {
+    const { state, sessionId, previousInteractionId } = context;
 
-      state.update({
-        previousInteractionId: interaction.id || previousInteractionId,
-        conversationKey: this.getConversationKey(sessionId)
-      });
+    state.update({
+      previousInteractionId,
+      conversationKey: this.getConversationKey(sessionId),
+    });
 
-      return {
-        message: responseMessage,
-        sessionData: state.buildSessionData(interaction.id || previousInteractionId),
-      };
-    } catch (error) {
-      throw Errors.gemini.messageSendError(error);
-    }
+    return state.buildSessionData(previousInteractionId);
   }
 
   /**

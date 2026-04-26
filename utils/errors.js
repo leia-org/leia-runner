@@ -1,6 +1,21 @@
 const createError = require('http-errors');
 
 const baseModel = {
+  missingSessionId: () =>
+    createError(400, 'sessionId es requerido para enviar mensajes al proveedor'),
+
+  noTextContent: (providerName = 'provider') =>
+    createError(500, `${providerName} no devolvio contenido de texto`),
+
+  messageSendError: (originalError, providerName = 'provider') => {
+    console.error(`Error enviando mensaje a ${providerName}:`, originalError);
+    if (originalError && (originalError.status || originalError.statusCode)) {
+      return originalError;
+    }
+
+    return createError(500, `Error enviando mensaje a ${providerName}`);
+  },
+
   missingInstruction: () =>
     createError(500, 'systemInstruction ausente en providerState; posible sesion corrupta'),
 

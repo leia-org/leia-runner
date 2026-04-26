@@ -31,7 +31,11 @@ class BaseModel {
    * @returns {number}
    */
   getConversationTtlSeconds() {
-    const parsed = Number.parseInt(process.env.CONVERSATION_HISTORY_TTL || this.defaultConversationTtlSeconds, 10);
+    const rawTtlSeconds =
+      process.env.CONVERSATION_HISTORY_TTL ??
+      process.env.CONVERSATION_HISTORY_TTL_SECONDS ??
+      this.defaultConversationTtlSeconds;
+    const parsed = Number.parseInt(rawTtlSeconds, 10);
     if (!Number.isInteger(parsed) || parsed <= 0) {
       return this.defaultConversationTtlSeconds;
     }
@@ -318,7 +322,59 @@ class BaseModel {
     }
   }
 
- // To be implemented by each provider
+  /**
+   * Crea la respuesta del modelo para un mensaje de sesión.
+   * El flujo común de conversación vive aquí y cada proveedor solo implementa
+   * la llamada al modelo y el mapeo de respuesta/estado.
+   * @param {Object} options - Opciones para enviar el mensaje
+   * @returns {Promise<Object>} - Respuesta normalizada del proveedor
+   */
+  async sendMessage(options) {
+    const { sessionId, message, sessionData } = options;
+
+    if (!sessionId) {
+      throw Errors.baseModel.missingSessionId();
+    }
+
+    const state = new ProviderState(sessionData);
+    const systemInstruction = state.getSystemInstruction();
+
+    try {
+      const conversationMessages = await this.buildConversationForRequest(sessionId, systemInstruction, message);
+      const requestContext = {
+        sessionId,
+        message,
+        sessionData,
+        state,
+        systemInstruction,
+        conversationMessages,
+      };
+
+      const response = await this.buildModelResponse(requestContext);
+      const responseMessage = this.extractResponseMessage(response, requestContext);
+
+      if (!responseMessage) {
+        throw Errors.baseModel.noTextContent(this.name);
+      }
+
+      await this.storeAssistantResponse(sessionId, responseMessage);
+
+      const updatedSessionData = await this.buildSessionDataAfterMessage(
+        requestContext,
+        response,
+        responseMessage
+      );
+
+      return {
+        message: responseMessage,
+        sessionData: updatedSessionData,
+      };
+    } catch (error) {
+      throw Errors.baseModel.messageSendError(error, this.name);
+    }
+  }
+
+  // Methods that each provider must define
 
   /**
    * Crea el cliente del proveedor. Debe ser implementado por cada subclase.
@@ -327,15 +383,6 @@ class BaseModel {
    */
   createClient() {
     throw new Error('Method createClient must be implemented by subclasses');
-  }
-
-  /**
-   * Envía un mensaje a la sesión
-   * @param {Object} options - Opciones para enviar el mensaje
-   * @returns {Promise<Object>} - Respuesta del modelo
-   */
-  async sendMessage(options) {
-    throw new Error('Method sendMessage must be implemented by subclasses');
   }
 
   /**
@@ -354,6 +401,38 @@ class BaseModel {
    */
   generateEvaluationResponse() {
     throw new Error('Method generateEvaluationResponse must be implemented by subclasses');
+  }
+
+  /**
+   * Ejecuta la llamada al proveedor con el contexto ya preparado.
+   * Debe implementarse por cada proveedor.
+   * @param {Object} context - Contexto normalizado de la solicitud
+   * @returns {Promise<Object>}
+  */
+  async buildModelResponse() {
+    throw new Error('Method buildModelResponse must be implemented by subclasses');
+  }
+
+  /**
+   * Extrae el texto final de la respuesta del proveedor.
+   * Debe implementarse por cada proveedor.
+   * @param {Object} response - Respuesta cruda del proveedor
+   * @param {Object} context - Contexto de la solicitud
+   * @returns {string}
+   */
+  extractResponseMessage() {
+    throw new Error('Method extractResponseMessage must be implemented by subclasses');
+  }
+
+  /**
+   * Construye el sessionData que se devolverá al servicio de sesión.
+   * @param {Object} context - Contexto de la solicitud
+   * @param {Object} response - Respuesta cruda del proveedor
+   * @param {string} responseMessage - Mensaje final del asistente
+   * @returns {Object}
+   */
+  async buildSessionDataAfterMessage(context, response, responseMessage) {
+    return context.state.buildSessionData(context.sessionId);
   }
 }
 

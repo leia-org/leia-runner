@@ -1,7 +1,6 @@
 require('dotenv').config();
 const BaseModel = require('./baseModel');
 const Errors = require('../../utils/errors');
-const ProviderState = require('../providerState');
 
 class OllamaProvider extends BaseModel {
   constructor() {
@@ -12,7 +11,7 @@ class OllamaProvider extends BaseModel {
     this.baseUrl = (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/+$/, '');
   }
 
-  // Requerido por BaseModel
+  // Requerido por el BaseModel
   createClient() {
     return {
       baseUrl: this.baseUrl,
@@ -20,48 +19,28 @@ class OllamaProvider extends BaseModel {
     };
   }
 
-  async sendMessage(options) {
-    const { sessionId, message, sessionData } = options;
+  async buildModelResponse(context) {
+    const { conversationMessages } = context;
 
-    if (!sessionId) {
-      throw Errors.ollama.missingSessionId();
-    }
+    return this.createChatCompletion({
+      model: this.model,
+      messages: conversationMessages,
+    });
+  }
 
-    const state = new ProviderState(sessionData);
-    const systemInstruction = state.getSystemInstruction();
+  extractResponseMessage(response) {
+    return this.extractAssistantMessage(response);
+  }
 
-    try {
-      const conversationMessages = await this.buildConversationForRequest(
-        sessionId,
-        systemInstruction,
-        message
-      );
+  async buildSessionDataAfterMessage(context) {
+    const { state, sessionId } = context;
 
-      const chatResponse = await this.createChatCompletion({
-        model: this.model,
-        messages: conversationMessages,
-      });
+    state.update({
+      conversationKey: this.getConversationKey(sessionId),
+      model: this.model,
+    });
 
-      const responseMessage = this.extractAssistantMessage(chatResponse);
-
-      if (!responseMessage) {
-        throw Errors.ollama.noTextContent();
-      }
-
-      await this.storeAssistantResponse(sessionId, responseMessage);
-
-      state.update({
-        conversationKey: this.getConversationKey(sessionId),
-        model: this.model,
-      });
-
-      return {
-        message: responseMessage,
-        sessionData: state.buildSessionData(sessionId),
-      };
-    } catch (error) {
-      throw Errors.ollama.messageSendError(error);
-    }
+    return state.buildSessionData(sessionId);
   }
 
   /**
