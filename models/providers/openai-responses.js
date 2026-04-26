@@ -67,7 +67,21 @@ class OpenAIResponsesProvider extends BaseModel {
     }
 
     extractResponseMessage(response) {
-        return this.extractResponseText(response);
+        if (typeof response?.output_text === 'string' && response.output_text.trim()) {
+            return response.output_text.trim();
+        }
+
+        if (!Array.isArray(response?.output)) {
+            return '';
+        }
+
+        return response.output
+            .filter((item) => item?.type === 'message' && Array.isArray(item.content))
+            .flatMap((item) => item.content)
+            .filter((content) => content?.type === 'output_text' && typeof content.text === 'string')
+            .map((content) => content.text.trim())
+            .filter(Boolean)
+            .join('\n\n');
     }
 
     async buildSessionDataAfterMessage(context) {
@@ -131,24 +145,6 @@ class OpenAIResponsesProvider extends BaseModel {
         }
 
         return conversation;
-    }
-
-    extractResponseText(response) {
-        if (typeof response?.output_text === 'string' && response.output_text.trim()) {
-            return response.output_text.trim();
-        }
-
-        if (!Array.isArray(response?.output)) {
-            return '';
-        }
-
-        return response.output
-            .filter((item) => item?.type === 'message' && Array.isArray(item.content))
-            .flatMap((item) => item.content)
-            .filter((content) => content?.type === 'output_text' && typeof content.text === 'string')
-            .map((content) => content.text.trim())
-            .filter(Boolean)
-            .join('\n\n');
     }
 }
 

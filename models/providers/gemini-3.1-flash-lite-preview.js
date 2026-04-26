@@ -39,7 +39,15 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
   }
 
   extractResponseMessage(response) {
-    return this.extractTextFromInteraction(response);
+    if (!interaction || !Array.isArray(interaction.outputs)) {
+      return '';
+    }
+
+    return interaction.outputs
+      .filter(output => output?.type === 'text' && typeof output.text === 'string')
+      .map(output => output.text.trim())
+      .filter(Boolean)
+      .join('\n\n');
   }
 
   async buildSessionDataAfterMessage(context) {
@@ -100,18 +108,6 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     const fencedMatch = trimmedResponse.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
 
     return fencedMatch ? fencedMatch[1].trim() : trimmedResponse;
-  }
-
-  extractTextFromInteraction(interaction) {
-    if (!interaction || !Array.isArray(interaction.outputs)) {
-      return '';
-    }
-
-    return interaction.outputs
-      .filter(output => output?.type === 'text' && typeof output.text === 'string')
-      .map(output => output.text.trim())
-      .filter(Boolean)
-      .join('\n\n');
   }
 
   async createInteraction({ model, input, systemInstruction, previousInteractionId, responseFormat }) {

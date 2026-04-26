@@ -29,7 +29,15 @@ class OllamaProvider extends BaseModel {
   }
 
   extractResponseMessage(response) {
-    return this.extractAssistantMessage(response);
+    if (!response || typeof response !== 'object') {
+      return '';
+    }
+
+    const content = response.message && typeof response.message.content === 'string'
+      ? response.message.content.trim()
+      : '';
+
+    return content;
   }
 
   async buildSessionDataAfterMessage(context) {
@@ -114,18 +122,6 @@ class OllamaProvider extends BaseModel {
     }
 
     return responseData;
-  }
-
-  extractAssistantMessage(response) {
-    if (!response || typeof response !== 'object') {
-      return '';
-    }
-
-    const content = response.message && typeof response.message.content === 'string'
-      ? response.message.content.trim()
-      : '';
-
-    return content;
   }
 
   getEvaluationResponseFormat() {
