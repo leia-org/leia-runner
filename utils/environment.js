@@ -16,9 +16,14 @@ const getProviderEnvVar = (envVar, suffix) => (envVar ? `${envVar}_${suffix}` : 
  * - `CONVERSATION_CACHE_ENABLED`
  *
  * @param {string} envVar - Prefijo del proveedor.
+ * @param {boolean} native - Indica si el proveedor es nativo.
  * @returns {boolean}
  */
-function isCacheEnabled(envVar) {
+function isCacheEnabled(envVar, native = true) {
+if (!native) {
+    return true;
+}
+
 let rawValue;
 
 if (envVar) {

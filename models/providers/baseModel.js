@@ -7,6 +7,7 @@ const { redisClient } = require('../../config/redis');
 class BaseModel {
   constructor() {
     this.name = 'base';
+    this.native = true;
     this.envVar = null;
     this._client = null;
     this.conversationPrefix = 'conversations:';
@@ -73,7 +74,7 @@ class BaseModel {
    * @returns {Promise<Array>}
    */
   async getConversation(sessionId) {
-    if (!Environment.isCacheEnabled(this.envVar)) {
+    if (!Environment.isCacheEnabled(this.envVar, this.native)) {
       return [];
     }
 
@@ -101,7 +102,7 @@ class BaseModel {
   async appendMessage(sessionId, role, content) {
     const message = this.normalizeConversationMessage(role, content);
 
-    if (!message || !Environment.isCacheEnabled(this.envVar)) {
+    if (!message || !Environment.isCacheEnabled(this.envVar, this.native)) {
       return;
     }
 
@@ -121,7 +122,7 @@ class BaseModel {
   async ensureSystemMessage(sessionId, systemInstruction) {
     const normalizedSystemMessage = this.normalizeConversationMessage('system', systemInstruction);
 
-    if (!normalizedSystemMessage || !Environment.isCacheEnabled(this.envVar)) {
+    if (!normalizedSystemMessage || !Environment.isCacheEnabled(this.envVar, this.native)) {
       return;
     }
 
@@ -175,7 +176,7 @@ class BaseModel {
    * @returns {Promise<Array>}
    */
   async buildConversationForRequest(sessionId, systemInstruction, userMessage) {
-    if (!Environment.isCacheEnabled(this.envVar)) {
+    if (!Environment.isCacheEnabled(this.envVar, this.native)) {
       const fallbackConversation = [];
       const normalizedSystemMessage = this.normalizeConversationMessage('system', systemInstruction);
       const normalizedUserMessage = this.normalizeConversationMessage('user', userMessage);
@@ -212,7 +213,7 @@ class BaseModel {
    * @returns {Promise<void>}
    */
   async clearConversation(sessionId) {
-    if (!Environment.isCacheEnabled(this.envVar)) {
+    if (!Environment.isCacheEnabled(this.envVar, this.native)) {
       return;
     }
 
