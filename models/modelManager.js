@@ -7,6 +7,7 @@ class ModelManager {
   constructor() {
     this.models = new Map();
     this.modelDir = path.join(__dirname, 'providers');
+    this.modelApiKeyProviders = new Map();
     this.defaultModel = process.env.DEFAULT_MODEL || 'openai';
   }
 
@@ -34,7 +35,6 @@ class ModelManager {
           console.warn('No hay modelos disponibles cargados.');
         }
       }
-
       console.log(`Modelo manager inicializado exitosamente. Modelo por defecto: ${this.defaultModel}`);
     } catch (error) {
       console.error('Error inicializando el manager de modelos:', error);
@@ -57,6 +57,7 @@ class ModelManager {
           const modelModule = require(modelPath);
 
           this.models.set(modelName, modelModule);
+          this.setApiKeyProviders(modelModule);
           console.log(`Modelo '${modelName}' cargado exitosamente`);
         } catch (error) {
           console.error(`Error cargando el modelo '${modelName}':`, error);
@@ -65,6 +66,29 @@ class ModelManager {
     } catch (error) {
       console.error('Error cargando modelos:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Recibe una instancia del modelo y obtiene su proveedor de ApiKey para actualizar el mapa del modelManager
+   * @param {string} modelName - Nombre del modelo a registrar
+   * @param {ProviderObject} modelModule
+   */
+  setApiKeyProviders(modelModule) {
+    const model = modelModule.model || 'default';
+    try {
+      if (modelModule && modelModule.apiKeyProvider) {
+        const apiKeyProvider = modelModule.apiKeyProvider;
+        if (this.modelApiKeyProviders.has(apiKeyProvider)) {
+          this.modelApiKeyProviders.set(apiKeyProvider, [...this.modelApiKeyProviders.get(apiKeyProvider), model]);
+        } else {
+          this.modelApiKeyProviders.set(apiKeyProvider, [model]);
+        }
+      } else {
+        console.warn(`El modelo '${model}' no tiene definido un apiKeyProvider.`);
+      }
+    } catch (error) {
+      console.error(`Error estableciendo el proveedor de API key para el modelo '${model}':`, error);
     }
   }
 
@@ -125,6 +149,10 @@ class ModelManager {
     return Array.from(this.models.keys());
   }
 
+  getApiKeyProvidersByModel() {
+    return Object.fromEntries(this.modelApiKeyProviders);
+  }
+
   getDefaultModel() {
     return this.defaultModel;
   }
@@ -149,4 +177,4 @@ class ModelManager {
 // Singleton pattern
 const modelManager = new ModelManager();
 
-module.exports = modelManager; 
+module.exports = modelManager;

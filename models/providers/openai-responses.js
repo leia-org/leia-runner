@@ -1,4 +1,5 @@
 require('dotenv').config();
+const ApiKeyProvider = require('../constants');
 const { OpenAI } = require('openai');
 const z = require('zod');
 const { zodTextFormat } = require('openai/helpers/zod');
@@ -19,6 +20,7 @@ class OpenAIResponsesProvider extends BaseModel {
         super();
         this.name = 'openai-responses';
         this.apiKeyEnvVar = 'OPENAI_API_KEY';
+        this.apiKeyProvider = ApiKeyProvider.OPENAI;
         this.model = 'gpt-5.4-mini';
         this.evaluationModel = process.env.OPENAI_EVALUATION_MODEL || 'gpt-5.4-mini';
     }
