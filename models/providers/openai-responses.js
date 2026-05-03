@@ -156,4 +156,4 @@ class OpenAIResponsesProvider extends BaseModel {
     }
 }
 
-module.exports = new OpenAIResponsesProvider();
+module.exports = OpenAIResponsesProvider;

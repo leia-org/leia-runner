@@ -23,6 +23,7 @@ class ModelSyncService {
       const models = modelManager.getAvailableModels();
       const defaultModel = modelManager.getDefaultModel();
       const apiKeyProvidersMap = modelManager.getApiKeyProvidersByModel();
+      const providerProviderModuleMap = modelManager.getProviderProviderModuleMap();
 
       // Guardar los modelos en Redis
       await redisClient.set(
@@ -41,6 +42,11 @@ class ModelSyncService {
         JSON.stringify(apiKeyProvidersMap)
       );
 
+      await redisClient.set(
+        `${this.keyPrefix}providerProviderModuleMap`,
+        JSON.stringify(providerProviderModuleMap)
+      );
+
       console.log('Models synchronized successfully in Redis');
     } catch (error) {
       console.error('Error synchronizing models in Redis:', error);
@@ -56,16 +62,18 @@ class ModelSyncService {
    */
   async getModelsFromRedis() {
     try {
-      const [availableModels, defaultModel, apiKeyProviders] = await Promise.all([
+      const [availableModels, defaultModel, apiKeyProviders, providerProviderModuleMap] = await Promise.all([
         redisClient.get(`${this.keyPrefix}available`),
         redisClient.get(`${this.keyPrefix}default`),
-        redisClient.get(`${this.keyPrefix}apiKeyProviders`)
+        redisClient.get(`${this.keyPrefix}apiKeyProviders`),
+        redisClient.get(`${this.keyPrefix}providerProviderModuleMap`)
       ]);
 
       return {
         models: JSON.parse(availableModels || '[]'),
         default: defaultModel || modelManager.getDefaultModel(),
-        apiKeyProviders: JSON.parse(apiKeyProviders || '{}')
+        apiKeyProviders: JSON.parse(apiKeyProviders || '{}'),
+        providerProviderModuleMap: JSON.parse(providerProviderModuleMap || '{}')
       };
     } catch (error) {
       console.error('Error getting models from Redis:', error);

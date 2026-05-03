@@ -2,13 +2,20 @@ const fs = require('fs').promises;
 const path = require('path');
 require('dotenv').config();
 const modelSyncService = require('../services/modelSyncService');
+const apiKeyService = require('../services/apiKeyService');
 
 class ModelManager {
   constructor() {
-    this.models = new Map();
     this.modelDir = path.join(__dirname, 'providers');
-    this.modelApiKeyProviders = new Map();
     this.defaultModel = process.env.DEFAULT_MODEL || 'openai';
+    // Almacena los constructores de los providers, antes se llamaba models
+    this.providerModules = new Map();
+    // Almacena los proveedores de API Key asociados a cada providerModule
+    this.modelApiKeyProviders = new Map();
+    // Mapa para relacionar providerModules con sus proveedores de API Key
+    this.providerProviderModuleMap = new Map();
+    // Cache para instancias de modelos, claveada por un token que puede ser provider:modelName:apiKeyId o similar
+    this.instancePromiseCache = new Map();
   }
 
   async initialize() {
@@ -24,8 +31,8 @@ class ModelManager {
 
       await this.loadModels();
 
-      if (!this.models.has(this.defaultModel)) {
-        const firstModel = Array.from(this.models.keys())[0];
+      if (!this.providerModules.has(this.defaultModel)) {
+        const firstModel = Array.from(this.providerModules.keys())[0];
         if (firstModel) {
           this.defaultModel = firstModel;
           console.warn(
@@ -44,23 +51,25 @@ class ModelManager {
 
   async loadModels() {
     try {
-      this.models.clear();
+      this.providerModules.clear();
       const files = await fs.readdir(this.modelDir);
-      const modelFiles = files.filter((file) => file.endsWith('.js') && file !== 'baseModel.js');
+      const providerFiles = files.filter((file) => file.endsWith('.js') && file !== 'baseModel.js');
 
-      for (const file of modelFiles) {
-        const modelName = path.basename(file, '.js');
-        const modelPath = path.join(this.modelDir, file);
+      for (const file of providerFiles) {
+        const providerModuleName = path.basename(file, '.js');
+        const providerModulePath = path.join(this.modelDir, file);
 
         try {
           // Importar el modelo
-          const modelModule = require(modelPath);
-
-          this.models.set(modelName, modelModule);
-          this.setApiKeyProviders(modelModule);
-          console.log(`Modelo '${modelName}' cargado exitosamente`);
+          const ProviderModule = require(providerModulePath);
+          const providerInstance = new ProviderModule();
+          this.providerModules.set(providerModuleName, ProviderModule);
+          this.setApiKeyProviders(providerInstance); // no son los providers en el sentido de la app sino que son openai,
+          // gemini, ollama, otra opcion es que fuera eso openai-response y cosas de esa y asi no habria que cambiar nada
+          this.setProviderModulesProvidersMap(providerModuleName, providerInstance.apiKeyProvider);
+          console.log(`Modelo '${providerModuleName}' cargado exitosamente`);
         } catch (error) {
-          console.error(`Error cargando el modelo '${modelName}':`, error);
+          console.error(`Error cargando el modelo '${providerModuleName}':`, error);
         }
       }
     } catch (error) {
@@ -69,16 +78,21 @@ class ModelManager {
     }
   }
 
+  setProviderModulesProvidersMap(providerModuleName, apiKeyProvider) {
+    if (!this.providerProviderModuleMap.has(apiKeyProvider)) {
+      this.providerProviderModuleMap.set(apiKeyProvider, providerModuleName);
+    }
+  }
   /**
    * Recibe una instancia del modelo y obtiene su proveedor de ApiKey para actualizar el mapa del modelManager
    * @param {string} modelName - Nombre del modelo a registrar
    * @param {ProviderObject} modelModule
    */
-  setApiKeyProviders(modelModule) {
-    const model = modelModule.model || 'default';
+  setApiKeyProviders(modelInstance) {
+    const model = modelInstance.model || 'default';
     try {
-      if (modelModule && modelModule.apiKeyProvider) {
-        const apiKeyProvider = modelModule.apiKeyProvider;
+      if (modelInstance && modelInstance.apiKeyProvider) {
+        const apiKeyProvider = modelInstance.apiKeyProvider;
         if (this.modelApiKeyProviders.has(apiKeyProvider)) {
           this.modelApiKeyProviders.set(apiKeyProvider, [...this.modelApiKeyProviders.get(apiKeyProvider), model]);
         } else {
@@ -91,27 +105,58 @@ class ModelManager {
       console.error(`Error estableciendo el proveedor de API key para el modelo '${model}':`, error);
     }
   }
-
-  getModel(modelName = 'default') {
+  //getProviderInstance
+  async getModel(provider = 'default', apiKeyId, apiKeyRequesterId, sessionModelToken) {
     // Si se solicita el modelo por defecto, usar el configurado
-    if (modelName === 'default') {
-      if (this.models.has(this.defaultModel)) {
-        return this.models.get(this.defaultModel);
-      }
-
-      const firstModel = Array.from(this.models.keys())[0];
-      if (firstModel) {
-        return this.models.get(firstModel);
+    const targetProvider = provider === 'default' ? this.defaultModel : provider;
+    if (!this.providerModules.has(targetProvider)) {
+      return Promise.reject(new Error(`Modelo '${targetProvider}' no encontrado`));
+    }
+    if (this.instancePromiseCache.has(sessionModelToken)) {
+      const cached = this.instancePromiseCache.get(sessionModelToken);
+      const isRevoked = await this.checkRevocationStatus(cached.createdAt, apiKeyId, sessionModelToken);
+      if (!isRevoked) {
+        return cached.promise;
       }
     }
 
-    if (this.models.has(modelName)) {
-      return this.models.get(modelName);
+    if (this.instancePromiseCache.has(sessionModelToken)) {
+      return this.instancePromiseCache.get(sessionModelToken).promise;
     }
-
-    throw new Error(`Modelo '${modelName}' no encontrado`);
+    const instancePromise = this.createModelInstance(targetProvider, apiKeyId, apiKeyRequesterId, sessionModelToken);
+    this.instancePromiseCache.set(sessionModelToken, {
+      promise: instancePromise,
+      createdAt: new Date(),
+    });
+    return instancePromise;
   }
+  async checkRevocationStatus(createdAt, apiKeyId, sessionModelToken) {
+    const revokedAtApiKey = await apiKeyService.getApiKeyRevokedAt(apiKeyId);
+    if (revokedAtApiKey && revokedAtApiKey > createdAt) {
+      this.instancePromiseCache.delete(sessionModelToken);
+      return true;
+    }
+    return false;
+  }
+  async createModelInstance(targetProvider, apiKeyId, apiKeyRequesterId, sessionModelToken) {
 
+    try {
+      const ModelClass = this.providerModules.get(targetProvider);
+      const modelInstance = new ModelClass();
+
+      if (!modelInstance.apiKeyProvider) {
+      throw new Error(`El modelo '${targetProvider}' no tiene un apiKeyProvider definido, no se puede configurar la API key.`);
+      }
+      const apiKey = await apiKeyService.getApiKeyValue(modelInstance.apiKeyProvider, apiKeyId, apiKeyRequesterId);
+      modelInstance.setApiKey(apiKey);
+      return modelInstance;
+    }catch (error) {
+      console.error(`Error creando instancia del modelo '${targetProvider}':`, error);
+      this.instancePromiseCache.delete(sessionModelToken);
+      throw error;
+    }
+  }
+  // registerProviderModule
   async registerModel(modelName, modelCode) {
     try {
       // Guardar el modelo en el sistema de archivos
@@ -129,7 +174,7 @@ class ModelManager {
         };
       }
 
-      this.models.set(modelName, modelModule);
+      this.providerModules.set(modelName, modelModule);
       await this.notifyModelChanges();
       return { success: true };
     } catch (error) {
@@ -141,24 +186,27 @@ class ModelManager {
     }
   }
 
-  async initializeModels() {
+  async initializeProviderModules() {
     await this.initialize();
   }
 
   getAvailableModels() {
-    return Array.from(this.models.keys());
+    return Array.from(this.providerModules.keys());
   }
 
   getApiKeyProvidersByModel() {
     return Object.fromEntries(this.modelApiKeyProviders);
   }
 
+  getProviderProviderModuleMap() {
+    return Object.fromEntries(this.providerProviderModuleMap);
+  }
   getDefaultModel() {
     return this.defaultModel;
   }
 
   setDefaultModel(name) {
-    if (!this.models.has(name)) {
+    if (!this.providerModules.has(name)) {
       throw new Error(`Model ${name} not found`);
     }
     this.defaultModel = name;

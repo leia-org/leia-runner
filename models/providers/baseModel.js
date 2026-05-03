@@ -5,20 +5,23 @@ const ProviderState = require('../providerState');
 class BaseModel {
   constructor() {
     this.name = 'base';
-    this.apiKeyEnvVar = '';
     this._client = null;
     this.apiKeyProvider = null;
+    this.apiKey = null;
   }
 
   // Methods implemented for all providers by default
 
+  setApiKey(apiKey) {
+    this.apiKey = apiKey;
+  }
   /**
    * Obtiene el API key del proveedor desde la variable de entorno.
    * @returns {string|undefined}
    */
   getApiKey() {
     // Se podria llamar aqui al servicio de obtener la apikey con el Desginer intern tooken
-    return process.env[this.apiKeyEnvVar];
+    return this.apiKey
   }
 
   /**
@@ -26,14 +29,10 @@ class BaseModel {
    * @returns {string}
    */
   ensureApiKey() {
-    if (!this.apiKeyEnvVar) {
-      throw new Error('apiKeyEnvVar is not configured for this provider');
-    }
-
     const apiKey = this.getApiKey();
 
     if (!apiKey) {
-      throw new Error(`${this.apiKeyEnvVar} is not configured`);
+      throw new Error('API key is not configured');
     }
 
     return apiKey;

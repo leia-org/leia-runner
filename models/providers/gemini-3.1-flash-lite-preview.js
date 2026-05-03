@@ -147,4 +147,4 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
   }
 }
 
-module.exports = new Gemini31FlashLitePreviewProvider();
+module.exports = Gemini31FlashLitePreviewProvider;

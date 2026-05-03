@@ -181,4 +181,4 @@ class OllamaProvider extends BaseModel {
   }
 }
 
-module.exports = new OllamaProvider();
+module.exports = OllamaProvider;
