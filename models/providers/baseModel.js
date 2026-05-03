@@ -339,7 +339,7 @@ class BaseModel {
 
       await this.storeAssistantResponse(sessionId, responseMessage);
 
-      const updatedSessionData = await context.state.buildSessionData(context.sessionId);
+      const updatedSessionData = await requestContext.state.buildSessionData(requestContext.sessionId);
 
       return {
         message: responseMessage,
