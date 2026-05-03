@@ -50,35 +50,4 @@ if (['0', 'false', 'no', 'off'].includes(normalized)) {
 return true;
 }
 
-/**
- * Obtiene el límite de historial de conversación para el proveedor actual.
- * Prioriza la variable del proveedor y luego la global.
- *
- * Convención esperada:
- * - `${envVar}_HISTORY_MAX_MESSAGES`
- * - `CONVERSATION_HISTORY_MAX_MESSAGES`
- *
- * @param {string} envVar - Prefijo del proveedor.
- * @returns {number}
- */
-function getConversationMaxMessages(envVar) {
-let rawValue;
-
-if (envVar) {
-    const providerEnvVar = getProviderEnvVar(envVar, 'HISTORY_MAX_MESSAGES');
-    rawValue = process.env[providerEnvVar];
-}
-
-if (!rawValue) {
-    rawValue = process.env.CONVERSATION_HISTORY_MAX_MESSAGES;
-}
-
-const parsed = Number.parseInt(rawValue || 60, 10);
-if (!Number.isInteger(parsed) || parsed <= 0) {
-    return 60;
-}
-
-return parsed;
-}
-
-module.exports = { isCacheEnabled, getConversationMaxMessages };
+module.exports = { isCacheEnabled };
