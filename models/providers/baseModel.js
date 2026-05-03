@@ -11,7 +11,6 @@ class BaseModel {
     this.envVar = null;
     this._client = null;
     this.conversationPrefix = 'conversations:';
-    this.defaultConversationMaxMessages = 60;
     this.defaultConversationTtlSeconds = 2629800;
   }
 
@@ -107,9 +106,7 @@ class BaseModel {
     }
 
     const key = this.getConversationKey(sessionId);
-    const maxMessages = Environment.getConversationMaxMessages(this.envVar);
     await redisClient.rPush(key, JSON.stringify(message));
-    await redisClient.lTrim(key, -maxMessages, -1);
     await redisClient.expire(key, this.getConversationTtlSeconds());
   }
 
@@ -127,7 +124,6 @@ class BaseModel {
     }
 
     const key = this.getConversationKey(sessionId);
-    const maxMessages = Environment.getConversationMaxMessages(this.envVar);
     const firstRawMessage = await redisClient.lIndex(key, 0);
 
     if (!firstRawMessage) {
@@ -156,7 +152,6 @@ class BaseModel {
 
     if (normalizedFirstMessage.role !== 'system') {
       await redisClient.lPush(key, JSON.stringify(normalizedSystemMessage));
-      await redisClient.lTrim(key, -maxMessages, -1);
       await redisClient.expire(key, this.getConversationTtlSeconds());
       return;
     }
