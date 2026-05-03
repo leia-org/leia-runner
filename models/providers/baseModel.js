@@ -171,22 +171,6 @@ class BaseModel {
    * @returns {Promise<Array>}
    */
   async buildConversationForRequest(sessionId, systemInstruction, userMessage) {
-    if (!Environment.isCacheEnabled(this.envVar, this.native)) {
-      const fallbackConversation = [];
-      const normalizedSystemMessage = this.normalizeConversationMessage('system', systemInstruction);
-      const normalizedUserMessage = this.normalizeConversationMessage('user', userMessage);
-
-      if (normalizedSystemMessage) {
-        fallbackConversation.push(normalizedSystemMessage);
-      }
-
-      if (normalizedUserMessage) {
-        fallbackConversation.push(normalizedUserMessage);
-      }
-
-      return fallbackConversation;
-    }
-
     await this.ensureSystemMessage(sessionId, systemInstruction);
     await this.appendMessage(sessionId, 'user', userMessage);
     return this.getConversation(sessionId);
@@ -355,11 +339,7 @@ class BaseModel {
 
       await this.storeAssistantResponse(sessionId, responseMessage);
 
-      const updatedSessionData = await this.buildSessionDataAfterMessage(
-        requestContext,
-        response,
-        responseMessage
-      );
+      const updatedSessionData = await context.state.buildSessionData(context.sessionId);
 
       return {
         message: responseMessage,
@@ -382,7 +362,7 @@ class BaseModel {
   }
 
   /**
-   * Define el threadId para la sesión. Este método debe ser implementado por cada proveedor para determinar cómo manejar el contexto de la conversación.
+   * Define el threadId para la sesión. Este método es implementado por el proveedor si este nos da el threadId.
    * @returns {string} El threadId a usar para la sesión, o un string vacío si el proveedor no utiliza threadId. 
    */
   async setThreadId() {
@@ -420,16 +400,6 @@ class BaseModel {
     throw new Error('Method extractResponseMessage must be implemented by subclasses');
   }
 
-  /**
-   * Construye el sessionData que se devolverá al servicio de sesión.
-   * @param {Object} context - Contexto de la solicitud
-   * @param {Object} response - Respuesta cruda del proveedor
-   * @param {string} responseMessage - Mensaje final del asistente
-   * @returns {Object}
-   */
-  async buildSessionDataAfterMessage(context, response, responseMessage) {
-    return context.state.buildSessionData(context.sessionId);
-  }
 }
 
 module.exports = BaseModel; 

@@ -84,18 +84,7 @@ class OpenAIResponsesProvider extends BaseModel {
             .join('\n\n');
     }
 
-    async buildSessionDataAfterMessage(context) {
-        const { state, sessionId, systemInstruction, conversationId, lastResponseId } = context;
-
-        state.update({
-            conversationId,
-            conversationKey: this.getConversationKey(sessionId),
-            systemInstruction,
-            lastResponseId,
-        });
-
-        return state.buildSessionData(conversationId);
-    }
+    
 
     /**
      * Realiza la llamada al API de OpenAI y devuelve la evaluación estructurada.

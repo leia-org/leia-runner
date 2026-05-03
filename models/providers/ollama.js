@@ -41,16 +41,7 @@ class OllamaProvider extends BaseModel {
     return content;
   }
 
-  async buildSessionDataAfterMessage(context) {
-    const { state, sessionId } = context;
-
-    state.update({
-      conversationKey: this.getConversationKey(sessionId),
-      model: this.model,
-    });
-
-    return state.buildSessionData(sessionId);
-  }
+  
 
   /**
    * Realiza la llamada al API de Ollama y devuelve la evaluación estructurada.

@@ -50,16 +50,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
       .join('\n\n');
   }
 
-  async buildSessionDataAfterMessage(context) {
-    const { state, sessionId, previousInteractionId } = context;
-
-    state.update({
-      previousInteractionId,
-      conversationKey: this.getConversationKey(sessionId),
-    });
-
-    return state.buildSessionData(previousInteractionId);
-  }
+  
 
   /**
    * Realiza la llamada al API de Gemini y devuelve la evaluación estructurada.
