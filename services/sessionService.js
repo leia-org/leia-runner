@@ -78,7 +78,6 @@ class SessionService {
       const sessionData = {
         sessionId,
         modelName,
-        assistantId: sessionDetails.assistantId ?? '',
         threadId: sessionDetails.threadId ?? '',
         providerState: sessionDetails.providerState ?? '',
         createdAt: Date.now()

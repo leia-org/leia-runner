@@ -34,7 +34,7 @@ class ModelManager {
           console.warn('No hay modelos disponibles cargados.');
         }
       }
-      
+
       console.log(`Modelo manager inicializado exitosamente. Modelo por defecto: ${this.defaultModel}`);
     } catch (error) {
       console.error('Error inicializando el manager de modelos:', error);
@@ -51,15 +51,10 @@ class ModelManager {
       for (const file of modelFiles) {
         const modelName = path.basename(file, '.js');
         const modelPath = path.join(this.modelDir, file);
-        
+
         try {
           // Importar el modelo
           const modelModule = require(modelPath);
-
-          if (!modelModule || typeof modelModule.createSession !== 'function' || typeof modelModule.sendMessage !== 'function') {
-            console.error(`Modelo '${modelName}' no cumple el contrato mínimo (createSession/sendMessage).`);
-            continue;
-          }
 
           this.models.set(modelName, modelModule);
           console.log(`Modelo '${modelName}' cargado exitosamente`);
@@ -72,7 +67,6 @@ class ModelManager {
       throw error;
     }
   }
-
 
   getModel(modelName = 'default') {
     // Si se solicita el modelo por defecto, usar el configurado
@@ -99,7 +93,7 @@ class ModelManager {
       // Guardar el modelo en el sistema de archivos
       const modelPath = path.join(this.modelDir, `${modelName}.js`);
       await fs.writeFile(modelPath, modelCode);
-      
+
       // Recargar y probar el modelo
       delete require.cache[require.resolve(modelPath)];
       const modelModule = require(modelPath);
