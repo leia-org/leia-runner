@@ -28,23 +28,15 @@ const MiniEvaluationResponseFormat = {
   required: ['score', 'feedback', 'suggestions'],
 };
 
-async function assertSessionLifecycle(provider, { instructions, message, expectInitialThreadId = 'non-empty' }) {
+async function assertSessionLifecycle(provider, { instructions, message }) {
   const sessionData = await provider.createSession({ instructions });
 
-  expect(sessionData).toEqual(
-    expect.objectContaining({
-      assistantId: expect.any(String),
-      threadId: expect.any(String),
-      providerState: expect.any(Object),
-    })
-  );
-  expect(sessionData.providerState.systemInstruction).toBe(instructions);
-
-  if (expectInitialThreadId === 'empty') {
-    expect(sessionData.threadId).toBe('');
-  } else {
-    expect(sessionData.threadId).not.toBe('');
-  }
+  expect(sessionData).toEqual({
+    providerState: {
+      systemInstruction: instructions,
+    },
+    threadId: '',
+  });
 
   const response = await provider.sendMessage({
     message,
@@ -65,17 +57,8 @@ async function assertSessionLifecycle(provider, { instructions, message, expectI
     })
   );
   expect(response.sessionData.providerState.systemInstruction).toBe(instructions);
-  
-  // Verify that threadId respects provider behavior:
-  // - OpenAI: threadId is created in createSession and persists
-  // - Gemini: threadId is empty initially and created on first sendMessage
-  if (sessionData.threadId === '') {
-    // Gemini behavior: threadId should be assigned after the first message
-    expect(response.sessionData.threadId).not.toBe('');
-  } else {
-    // OpenAI behavior: threadId should be the same as initial sessionData
-    expect(response.sessionData.threadId).toBe(sessionData.threadId);
-  }
+  // threadId is empty after createSession; after the first sendMessage it should be assigned
+  expect(response.sessionData.threadId).not.toBe('');
 
   return response;
 }
@@ -149,7 +132,6 @@ describe('LLM integration tests', () => {
     await assertSessionLifecycle(openaiResponsesProvider, {
       instructions: 'You are a concise assistant that answers briefly.',
       message: 'Reply with a short confirmation that the session flow works.',
-      expectInitialThreadId: 'non-empty',
     });
   });
 
@@ -182,7 +164,6 @@ describe('LLM integration tests', () => {
     await assertSessionLifecycle(geminiProvider, {
       instructions: 'You are a concise assistant that answers briefly.',
       message: 'Reply with a short confirmation that the session flow works.',
-      expectInitialThreadId: 'empty',
     });
   });
 });
