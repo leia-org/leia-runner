@@ -1,11 +1,9 @@
 import { describe, expect, beforeAll, afterAll, test } from 'vitest';
 import { z } from 'zod';
-
-require('dotenv').config();
-
-const structuredGenerationService = require('../services/structuredGenerationService');
-const openaiAssistantProvider = require('../models/providers/openai-assistant');
-const geminiProvider = require('../models/providers/gemini-3.1-flash-lite-preview');
+import 'dotenv/config';
+import structuredGenerationService from '../services/structuredGenerationService';
+import openaiResponsesProvider from '../models/providers/openai-responses';
+import geminiProvider from '../models/providers/gemini-3.1-flash-lite-preview';
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 
@@ -148,7 +146,7 @@ describe('LLM integration tests', () => {
     expect(result.score).toBeLessThanOrEqual(10);
     expect(result.suggestions.length).toBeGreaterThan(0);
 
-    await assertSessionLifecycle(openaiAssistantProvider, {
+    await assertSessionLifecycle(openaiResponsesProvider, {
       instructions: 'You are a concise assistant that answers briefly.',
       message: 'Reply with a short confirmation that the session flow works.',
       expectInitialThreadId: 'non-empty',
