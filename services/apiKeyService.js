@@ -11,8 +11,8 @@ class ApiKeyService {
 
     if (apiKeyProvider, apiKeyId, apiKeyRequesterId) {
       try {
-        const designerBase = process.env.VITE_APP_DESIGNER_BACKEND; // Designer/Manager base URL
-        const url = `${designerBase}/api/v1/users/apikeys/get-value`;
+        const authBase = process.env.VITE_AUTH_SERVICE_BACKEND;
+        const url = `${authBase}/api/v1/apikeys/get-value`;
         const payload = {
           provider: apiKeyProvider,
           apiKeyId: apiKeyId,
@@ -20,7 +20,7 @@ class ApiKeyService {
         };
         const config = {
           headers: {
-            'x-designer-intern-token': process.env.DESIGNER_INTERN_TOKEN,
+            'x-intern-token': process.env.INTERN_TOKEN,
           }
         };
         const resp = await axios.post(url, payload, config);
