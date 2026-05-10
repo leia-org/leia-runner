@@ -2,6 +2,8 @@ const modelManager = require('../models/modelManager');
 const sessionService = require('../services/sessionService');
 
 module.exports.evaluateSolution = async function evaluateSolution(req, res) {
+  let conversationClearable = false;
+
   try {
     const { sessionId, result } = req.body;
 
@@ -21,6 +23,8 @@ module.exports.evaluateSolution = async function evaluateSolution(req, res) {
       return res.status(404).send({ error: `LEIA metadata for session ID: ${sessionId} not found` });
     }
 
+    conversationClereable = true;
+
     // Obtener el modelo
     const model = modelManager.getModel(sessionData.modelName);
 
@@ -34,5 +38,13 @@ module.exports.evaluateSolution = async function evaluateSolution(req, res) {
   } catch (error) {
     console.error(`Error evaluating solution for session ${req.body.sessionId}:`, error);
     res.status(500).send({ error: 'Internal error evaluating solution' });
+  } finally {
+    if (conversationClereable) {
+      try {
+        await sessionService.clearConversation(req.body.sessionId);
+      } catch (cleanupError) {
+        console.error(`Error clearing conversation cache for session ${req.body.sessionId}:`, cleanupError);
+      }
+    }
   }
 }; 

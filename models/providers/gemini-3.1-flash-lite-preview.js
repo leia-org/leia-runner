@@ -1,7 +1,6 @@
 require('dotenv').config();
 const BaseModel = require('./baseModel');
 const Errors = require('../../utils/errors');
-const ProviderState = require('../providerState');
 const { GoogleGenAI } = require('@google/genai');
 
 /**
@@ -12,49 +11,46 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
   constructor() {
     super();
     this.name = 'gemini-3.1-flash-lite-preview';
-    this.apiKeyEnvVar = 'GEMINI_API_KEY';
+    this.envVar = 'GEMINI';
     this.model = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite-preview';
     this.evaluationModel = process.env.GEMINI_EVALUATION_MODEL || this.model;
   }
 
-  // Requerido para el baseModel
+  // Requerido por el baseModel
   
   createClient(apiKey) {
     return new GoogleGenAI({ apiKey });
   }
 
-  async sendMessage(options) {
-    const { message, sessionData } = options;
-    const state = new ProviderState(sessionData);
-    const systemInstruction = state.getSystemInstruction();
+  async buildModelResponse(context) {
+    const { state, systemInstruction, message } = context;
     const previousInteractionId = state.get('previousInteractionId') || state.threadId;
 
-    try {
-      const interaction = await this.createInteraction({
-        model: this.model,
-        input: message,
-        systemInstruction,
-        previousInteractionId
-      });
+    const interaction = await this.createInteraction({
+      model: this.model,
+      input: message,
+      systemInstruction,
+      previousInteractionId,
+    });
 
-      const responseMessage = this.extractTextFromInteraction(interaction);
+    context.previousInteractionId = interaction.id || previousInteractionId;
 
-      if (!responseMessage) {
-        throw Errors.gemini.noTextContent();
-      }
-
-      state.update({
-        previousInteractionId: interaction.id || previousInteractionId
-      });
-
-      return {
-        message: responseMessage,
-        sessionData: state.buildSessionData(interaction.id || previousInteractionId),
-      };
-    } catch (error) {
-      throw Errors.gemini.messageSendError(error);
-    }
+    return interaction;
   }
+
+  extractResponseMessage(response) {
+    if (!response || !Array.isArray(response.outputs)) {
+      return '';
+    }
+
+    return response.outputs
+      .filter(output => output?.type === 'text' && typeof output.text === 'string')
+      .map(output => output.text.trim())
+      .filter(Boolean)
+      .join('\n\n');
+  }
+
+  
 
   /**
    * Realiza la llamada al API de Gemini y devuelve la evaluación estructurada.
@@ -70,7 +66,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
       responseFormat: this.getEvaluationResponseFormat()
     });
 
-    const responseText = this.extractTextFromInteraction(interaction);
+    const responseText = this.extractResponseMessage(interaction);
 
     if (!responseText) {
       throw Errors.gemini.noEvaluationContent();
@@ -103,18 +99,6 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     const fencedMatch = trimmedResponse.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
 
     return fencedMatch ? fencedMatch[1].trim() : trimmedResponse;
-  }
-
-  extractTextFromInteraction(interaction) {
-    if (!interaction || !Array.isArray(interaction.outputs)) {
-      return '';
-    }
-
-    return interaction.outputs
-      .filter(output => output?.type === 'text' && typeof output.text === 'string')
-      .map(output => output.text.trim())
-      .filter(Boolean)
-      .join('\n\n');
   }
 
   async createInteraction({ model, input, systemInstruction, previousInteractionId, responseFormat }) {

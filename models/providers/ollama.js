@@ -1,23 +1,18 @@
 require('dotenv').config();
 const BaseModel = require('./baseModel');
 const Errors = require('../../utils/errors');
-const ProviderState = require('../providerState');
-const { ConversationStore } = require('../conversationStore');
 
 class OllamaProvider extends BaseModel {
   constructor() {
     super();
     this.name = 'ollama';
+    this.native = false;
     this.model = process.env.OLLAMA_MODEL || 'llama3.1:8b';
     this.evaluationModel = process.env.OLLAMA_EVALUATION_MODEL || this.model;
     this.baseUrl = (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/+$/, '');
-    this.conversationStore = new ConversationStore({
-      providerName: 'ollama',
-      defaultMaxMessages: 60
-    });
   }
 
-  // Requerido por BaseModel
+  // Requerido por el BaseModel
   createClient() {
     return {
       baseUrl: this.baseUrl,
@@ -25,49 +20,28 @@ class OllamaProvider extends BaseModel {
     };
   }
 
-  async sendMessage(options) {
-    const { sessionId, message, sessionData } = options;
+  async buildModelResponse(context) {
+    const { conversationMessages } = context;
 
-    if (!sessionId) {
-      throw Errors.ollama.missingSessionId();
-    }
-
-    const state = new ProviderState(sessionData);
-    const systemInstruction = state.getSystemInstruction();
-
-    try {
-      const conversationMessages = await this.conversationStore.buildConversationForRequest(
-        sessionId,
-        systemInstruction,
-        message
-      );
-
-      const chatResponse = await this.createChatCompletion({
-        model: this.model,
-        messages: conversationMessages,
-      });
-
-      const responseMessage = this.extractAssistantMessage(chatResponse);
-
-      if (!responseMessage) {
-        throw Errors.ollama.noTextContent();
-      }
-
-      await this.conversationStore.storeAssistantResponse(sessionId, responseMessage);
-
-      state.update({
-        conversationKey: this.conversationStore.getConversationKey(sessionId),
-        model: this.model,
-      });
-
-      return {
-        message: responseMessage,
-        sessionData: state.buildSessionData(sessionId),
-      };
-    } catch (error) {
-      throw Errors.ollama.messageSendError(error);
-    }
+    return this.createChatCompletion({
+      model: this.model,
+      messages: conversationMessages,
+    });
   }
+
+  extractResponseMessage(response) {
+    if (!response || typeof response !== 'object') {
+      return '';
+    }
+
+    const content = response.message && typeof response.message.content === 'string'
+      ? response.message.content.trim()
+      : '';
+
+    return content;
+  }
+
+  
 
   /**
    * Realiza la llamada al API de Ollama y devuelve la evaluación estructurada.
@@ -140,18 +114,6 @@ class OllamaProvider extends BaseModel {
     }
 
     return responseData;
-  }
-
-  extractAssistantMessage(response) {
-    if (!response || typeof response !== 'object') {
-      return '';
-    }
-
-    const content = response.message && typeof response.message.content === 'string'
-      ? response.message.content.trim()
-      : '';
-
-    return content;
   }
 
   getEvaluationResponseFormat() {

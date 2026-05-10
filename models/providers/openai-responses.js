@@ -4,7 +4,6 @@ const z = require('zod');
 const { zodTextFormat } = require('openai/helpers/zod');
 const BaseModel = require('./baseModel');
 const Errors = require('../../utils/errors');
-const ProviderState = require('../providerState');
 
 const EvaluationSchema = z.object({
     score: z.number().min(0).max(10),
@@ -18,72 +17,74 @@ class OpenAIResponsesProvider extends BaseModel {
     constructor() {
         super();
         this.name = 'openai-responses';
-        this.apiKeyEnvVar = 'OPENAI_API_KEY';
+        this.envVar = 'OPENAI';
         this.model = 'gpt-5.4-mini';
         this.evaluationModel = process.env.OPENAI_EVALUATION_MODEL || 'gpt-5.4-mini';
     }
 
-    // Requerido para el baseModel
+    // Requerido por el BaseModel
 
     createClient(apiKey) {
         return new OpenAI({ apiKey });
     }
 
-    async sendMessage(options) {
-        const { message, sessionData } = options;
-        const state = new ProviderState(sessionData);
-        const systemInstruction = state.getSystemInstruction();
+    async buildModelResponse(context) {
+        const { sessionData, state, systemInstruction, message } = context;
         let conversationId = state.get('conversationId') || (state.threadId.startsWith('conv_') ? state.threadId : '');
 
-        try {
-            if (!conversationId) {
-                if (sessionData?.threadId) {
-                    console.warn(
-                        'Sesion legacy de Assistants detectada. Se iniciara una nueva conversacion sin historial previo.'
-                    );
-                }
-
-                const conversation = await this.createConversation();
-                conversationId = conversation.id;
+        if (!conversationId) {
+            if (sessionData?.threadId) {
+                console.warn(
+                    'Sesion legacy de Assistants detectada. Se iniciara una nueva conversacion sin historial previo.'
+                );
             }
 
-            const response = await this.getClient().responses.create({
-                model: this.model,
-                conversation: conversationId,
-                instructions: systemInstruction,
-                input: [
-                    {
-                        role: 'user',
-                        content: message,
-                    },
-                ],
-                store: true,
-            });
-
-            if (response?.error) {
-                throw Errors.openAI.responseError(response.error.message);
-            }
-
-            const responseMessage = this.extractResponseText(response);
-
-            if (!responseMessage) {
-                throw Errors.openAI.noTextContent();
-            }
-
-            state.update({
-                conversationId,
-                systemInstruction,
-                lastResponseId: response.id || state.get('lastResponseId'),
-            });
-
-            return {
-                message: responseMessage,
-                sessionData: state.buildSessionData(conversationId),
-            };
-        } catch (error) {
-            throw Errors.openAI.messageSendError(error);
+            const conversation = await this.createConversation();
+            conversationId = conversation.id;
         }
+
+        const response = await this.getClient().responses.create({
+            model: this.model,
+            conversation: conversationId,
+            instructions: systemInstruction,
+            input: [
+                {
+                    role: 'user',
+                    content: message,
+                },
+            ],
+            store: true,
+        });
+
+        if (response?.error) {
+            throw Errors.openAI.responseError(response.error.message);
+        }
+
+        context.conversationId = conversationId;
+        context.lastResponseId = response.id || state.get('lastResponseId');
+
+        return response;
     }
+
+    extractResponseMessage(response) {
+        if (typeof response?.output_text === 'string' && response.output_text.trim()) {
+            return response.output_text.trim();
+        }
+
+        if (!Array.isArray(response?.output)) {
+            return '';
+        }
+
+        return response.output
+            .filter((item) => item?.type === 'message' && Array.isArray(item.content))
+            .flatMap((item) => item.content)
+            .filter((content) => content?.type === 'output_text' && typeof content.text === 'string')
+            .map((content) => content.text.trim())
+            .filter(Boolean)
+            .join('\n\n');
+    }
+
+    
 
     /**
      * Realiza la llamada al API de OpenAI y devuelve la evaluación estructurada.
@@ -133,24 +134,6 @@ class OpenAIResponsesProvider extends BaseModel {
         }
 
         return conversation;
-    }
-
-    extractResponseText(response) {
-        if (typeof response?.output_text === 'string' && response.output_text.trim()) {
-            return response.output_text.trim();
-        }
-
-        if (!Array.isArray(response?.output)) {
-            return '';
-        }
-
-        return response.output
-            .filter((item) => item?.type === 'message' && Array.isArray(item.content))
-            .flatMap((item) => item.content)
-            .filter((content) => content?.type === 'output_text' && typeof content.text === 'string')
-            .map((content) => content.text.trim())
-            .filter(Boolean)
-            .join('\n\n');
     }
 }
 
