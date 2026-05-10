@@ -64,8 +64,7 @@ class ModelManager {
           const ProviderModule = require(providerModulePath);
           const providerInstance = new ProviderModule();
           this.providerModules.set(providerModuleName, ProviderModule);
-          this.setApiKeyProviders(providerInstance); // no son los providers en el sentido de la app sino que son openai,
-          // gemini, ollama, otra opcion es que fuera eso openai-response y cosas de esa y asi no habria que cambiar nada
+          this.setApiKeyProviders(providerInstance);
           this.setProviderModulesProvidersMap(providerModuleName, providerInstance.apiKeyProvider);
           console.log(`Modelo '${providerModuleName}' cargado exitosamente`);
         } catch (error) {
@@ -147,8 +146,11 @@ class ModelManager {
       if (!modelInstance.apiKeyProvider) {
       throw new Error(`El modelo '${targetProvider}' no tiene un apiKeyProvider definido, no se puede configurar la API key.`);
       }
-      const apiKey = await apiKeyService.getApiKeyValue(modelInstance.apiKeyProvider, apiKeyId, apiKeyRequesterId);
-      modelInstance.setApiKey(apiKey);
+      const {keyValue, baseUrl} = await apiKeyService.getApiKeyData(modelInstance.apiKeyProvider, apiKeyId, apiKeyRequesterId);
+      modelInstance.setApiKey(keyValue);
+      if (baseUrl) {
+        modelInstance.setBaseURL(baseUrl);
+      }
       return modelInstance;
     }catch (error) {
       console.error(`Error creando instancia del modelo '${targetProvider}':`, error);

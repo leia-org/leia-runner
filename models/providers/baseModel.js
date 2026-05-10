@@ -11,7 +11,9 @@ class BaseModel {
   }
 
   // Methods implemented for all providers by default
-
+  setBaseURL(url) {
+    this.baseUrl = url.replace(/\/+$/, '');
+  }
   setApiKey(apiKey) {
     this.apiKey = apiKey;
   }
@@ -21,7 +23,7 @@ class BaseModel {
    */
   getApiKey() {
     // Se podria llamar aqui al servicio de obtener la apikey con el Desginer intern tooken
-    return this.apiKey
+    return  this.apiKey;
   }
 
   /**

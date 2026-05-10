@@ -7,9 +7,9 @@ class ApiKeyService {
       }
 
 
-  async getApiKeyValue(apiKeyProvider, apiKeyId, apiKeyRequesterId) {
+  async getApiKeyData(apiKeyProvider, apiKeyId, apiKeyRequesterId) {
 
-    if (apiKeyProvider, apiKeyId, apiKeyRequesterId) {
+    if (apiKeyProvider && apiKeyId && apiKeyRequesterId) {
       try {
         const authBase = process.env.VITE_AUTH_SERVICE_BACKEND;
         const url = `${authBase}/api/v1/apikeys/get-value`;
@@ -24,9 +24,11 @@ class ApiKeyService {
           }
         };
         const resp = await axios.post(url, payload, config);
-
         if (resp && resp.data && resp.data.keyValue) {
-          return resp.data.keyValue;
+          if (resp.data.baseUrl) {
+            return { keyValue: resp.data.keyValue, baseUrl: resp.data.baseUrl };
+          }
+          return { keyValue: resp.data.keyValue };
         } else {
           throw new Error('Designer returned no apiKeyInfo for apiKeyId');
         }

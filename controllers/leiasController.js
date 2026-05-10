@@ -24,12 +24,8 @@ module.exports.createLeia = async function createLeia(req, res) {
     // Extract necessary information from leia for instructions
     const instructions = buildInstructionsFromLeia(leia);
 
-    // Determine which model provider to use, aqui hay que ver todo el tema del provider y el modelo y todo cuando deje
-    // esto listo podria tener una reunion con rafa para tratar de dejarlo listo
-    // Actualmente en leia.runnerConfiguration.provider llega el modelo habria que cambiarlo pero ahora lo voy a hardcodear y ya
-    const { provider, modelName, apiKeyId, apiKeyRequesterId } = runnerConfiguration; // aqui se extrae el ModelName
-
-    //const keyValue = await sessionService.getApiKeyValue(runnerConfiguration);
+    // Determine which model provider to use
+    const { provider, modelName, apiKeyId, apiKeyRequesterId } = runnerConfiguration; 
     // Create session with the specified provider
     const sessionData = await sessionService.createSession(sessionId, instructions,modelName, provider, apiKeyId, apiKeyRequesterId);
 
