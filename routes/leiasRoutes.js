@@ -9,28 +9,28 @@ const problemGeneratorController = require('../controllers/problemGeneratorContr
 const behaviourGeneratorController = require('../controllers/behaviourGeneratorController');
 const { bearerAuth } = require('../utils/auth');
 
-// Aplicar middleware de autenticación a todas las rutas
+// Apply authentication middleware to all routes
 router.use(bearerAuth);
 
-// Endpoint para crear una nueva instancia de LEIA
+// Endpoint for creating a new LEIA instance
 router.post('/leias', leiasController.createLeia);
 
-// Endpoint para enviar mensajes a LEIA
+// Endpoint for sending messages to LEIA
 router.post('/leias/:sessionId/messages', leiasController.sendLeiaMessage);
 
-// Endpoint para listar los modelos disponibles
+// Endpoint for listing available models
 router.get('/models', modelsController.listModels);
 
 router.post('/evaluation', bearerAuth, evaluationController.evaluateSolution);
 
-// Endpoints para gestión de caché
+// Endpoints for cache management
 router.delete('/cache/purge', cacheController.purgeCache);
 router.get('/cache/stats', cacheController.getCacheStats);
 
-// Endpoints para transcripciones
+// Endpoints for transcriptions
 router.post('/transcriptions/generate', transcriptionController.generateTranscription);
 
-// Endpoint para generación de problemas con IA
+// Endpoint for problem generation with AI
 router.post('/problems/generate', problemGeneratorController.generateProblem);
 router.post('/behaviours/generate', behaviourGeneratorController.generateBehaviour);
 

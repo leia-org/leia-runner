@@ -2,17 +2,19 @@ const fs = require('fs').promises;
 const path = require('path');
 require('dotenv').config();
 const modelSyncService = require('../services/modelSyncService');
+const { redisClient } = require('../config/redis');
 
 class ModelManager {
   constructor() {
     this.models = new Map();
+    this.validatedModels = new Set();
     this.modelDir = path.join(__dirname, 'providers');
     this.defaultModel = process.env.DEFAULT_MODEL || 'openai';
   }
 
   async initialize() {
     try {
-      // Crear directorio de proveedores si no existe
+      // Create providers directory if it doesn't exist
       try {
         await fs.mkdir(this.modelDir, { recursive: true });
       } catch (error) {
@@ -28,16 +30,16 @@ class ModelManager {
         if (firstModel) {
           this.defaultModel = firstModel;
           console.warn(
-            `Modelo por defecto '${process.env.DEFAULT_MODEL}' no está disponible. Usando '${this.defaultModel}'.`
+            `Default model '${process.env.DEFAULT_MODEL}' is not available. Using '${this.defaultModel}'.`
           );
         } else {
-          console.warn('No hay modelos disponibles cargados.');
+          console.warn('No available models loaded.');
         }
       }
 
-      console.log(`Modelo manager inicializado exitosamente. Modelo por defecto: ${this.defaultModel}`);
+      console.log(`Model manager initialized successfully. Default model: ${this.defaultModel}`);
     } catch (error) {
-      console.error('Error inicializando el manager de modelos:', error);
+      console.error('Error initializing model manager:', error);
       throw error;
     }
   }
@@ -53,23 +55,36 @@ class ModelManager {
         const modelPath = path.join(this.modelDir, file);
 
         try {
-          // Importar el modelo
+          // Import the model
           const modelModule = require(modelPath);
-
-          this.models.set(modelName, modelModule);
-          console.log(`Modelo '${modelName}' cargado exitosamente`);
+          
+          // Run automatic tests
+          const testResult = await this.testModel(modelModule, modelName);
+          
+          if (testResult.success) {
+            // If tests pass, register it as validated
+            this.models.set(modelName, modelModule);
+            this.validatedModels.add(modelName);
+            await redisClient.hSet('validated_models', modelName, 'true');
+            await redisClient.expire('validated_models', 86400); // 24 hours
+            console.log(`Model '${modelName}' loaded and validated successfully`);
+          } else {
+            console.error(`Model '${modelName}' failed tests:`, testResult.errors);
+            await redisClient.hSet('validated_models', modelName, 'false');
+            await redisClient.expire('validated_models', 86400); // 24 hours
+          }
         } catch (error) {
-          console.error(`Error cargando el modelo '${modelName}':`, error);
+          console.error(`Error loading model '${modelName}':`, error);
         }
       }
     } catch (error) {
-      console.error('Error cargando modelos:', error);
+      console.error('Error loading models:', error);
       throw error;
     }
   }
 
   getModel(modelName = 'default') {
-    // Si se solicita el modelo por defecto, usar el configurado
+    // If default model is requested, use the configured one
     if (modelName === 'default') {
       if (this.models.has(this.defaultModel)) {
         return this.models.get(this.defaultModel);
@@ -85,36 +100,67 @@ class ModelManager {
       return this.models.get(modelName);
     }
 
-    throw new Error(`Modelo '${modelName}' no encontrado`);
+    throw new Error(`Model '${modelName}' not found`);
   }
 
   async registerModel(modelName, modelCode) {
     try {
-      // Guardar el modelo en el sistema de archivos
+      // Save model to filesystem
       const modelPath = path.join(this.modelDir, `${modelName}.js`);
       await fs.writeFile(modelPath, modelCode);
 
-      // Recargar y probar el modelo
+      // Reload and test the model
       delete require.cache[require.resolve(modelPath)];
       const modelModule = require(modelPath);
-
-      if (typeof modelModule.createSession !== 'function' || typeof modelModule.sendMessage !== 'function') {
+      
+      const testResult = await this.testModel(modelModule, modelName);
+      
+      if (testResult.success) {
+        this.models.set(modelName, modelModule);
+        this.validatedModels.add(modelName);
+        await redisClient.hSet('validated_models', modelName, 'true');
+        await redisClient.expire('validated_models', 86400); // 24 hours
+        this.notifyModelChanges();
+        return { success: true };
+      } else {
+        await redisClient.hSet('validated_models', modelName, 'false');
+        await redisClient.expire('validated_models', 86400); // 24 hours
         return {
-          success: false,
-          errors: ['El modelo debe implementar createSession y sendMessage'],
+          success: false, 
+          errors: testResult.errors 
         };
       }
-
-      this.models.set(modelName, modelModule);
-      await this.notifyModelChanges();
-      return { success: true };
     } catch (error) {
-      console.error(`Error registrando el modelo '${modelName}':`, error);
+      console.error(`Error registering model '${modelName}':`, error);
       return {
         success: false,
         errors: [error.message],
       };
     }
+  }
+
+  /**
+   * Validates that a loaded model module satisfies the BaseModel contract.
+   * Performs a structural check only — no network calls.
+   * @param {Object} modelModule - The loaded provider instance
+   * @param {string} modelName  - Provider name (for error messages)
+   * @returns {{ success: boolean, errors: string[] }}
+   */
+  async testModel(modelModule, modelName) {
+    const requiredMethods = ['sendMessage', 'createSession', 'evaluateSolution'];
+    const errors = [];
+
+    if (!modelModule || typeof modelModule !== 'object') {
+      return { success: false, errors: [`'${modelName}' did not export an object`] };
+    }
+
+    for (const method of requiredMethods) {
+      if (typeof modelModule[method] !== 'function') {
+        errors.push(`Missing required method: ${method}`);
+      }
+    }
+
+    return { success: errors.length === 0, errors };
   }
 
   async initializeModels() {

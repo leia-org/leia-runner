@@ -2,80 +2,98 @@ const createError = require('http-errors');
 
 const baseModel = {
   missingInstruction: () =>
-    createError(500, 'systemInstruction ausente en providerState; posible sesion corrupta'),
+    createError(500, 'systemInstruction missing in providerState; possible corrupt session'),
 
   missingInstructionOnCreate: () =>
-    createError(400, 'instructions es requerida para crear una sesion'),
+    createError(400, 'instructions are required to create a session'),
 
   evaluationError: (originalError) => {
-    console.error('Error durante la evaluacion de la solucion:', originalError);
-    return createError(500, 'Error evaluando la solucion');
+    console.error('Error during solution evaluation:', originalError);
+    return createError(500, 'Error evaluating the solution');
   }
 };
 
 const openAI = {
   noConversationId: () =>
-    createError(500, 'OpenAI no devolvio un identificador de conversacion'),
+    createError(500, 'OpenAI did not return a conversation identifier'),
 
   noTextContent: () =>
-    createError(500, 'OpenAI no devolvio contenido de texto'),
+    createError(500, 'OpenAI did not return text content'),
 
   noEvaluation: () =>
-    createError(500, 'OpenAI no devolvio una evaluacion estructurada'),
+    createError(500, 'OpenAI did not return a structured evaluation'),
 
   responseError: (message) =>
-    createError(500, message || 'OpenAI devolvio un error al generar la respuesta'),
+    createError(500, message || 'OpenAI returned an error generating the response'),
 
   sessionCreationError: (originalError) => {
-    console.error('Error al crear sesion con OpenAI Conversations:', originalError);
-    return createError(500, 'Error creando sesion');
+    console.error('Error creating session with OpenAI Conversations:', originalError);
+    return createError(500, 'Error creating session');
   },
 
   messageSendError: (originalError) => {
-    console.error('Error enviando mensaje a OpenAI Conversations:', originalError);
-    return createError(500, 'Error enviando mensaje');
+    console.error('Error sending message to OpenAI Conversations:', originalError);
+    return createError(500, 'Error sending message');
   },
 
   evaluationError: (originalError) => {
-    console.error('Error evaluando solucion con OpenAI:', originalError);
-    return createError(500, 'Error evaluando la solucion con OpenAI');
+    console.error('Error evaluating solution with OpenAI:', originalError);
+    return createError(500, 'Error evaluating the solution with OpenAI');
   },
 };
 
 const gemini = {
 
-  noTextContent: () => createError(500, 'Gemini no devolvio contenido de texto'),
+  noTextContent: () => createError(500, 'Gemini did not return text content'),
 
   noEvaluationContent: () =>
-    createError(500, 'Gemini no devolvio contenido para la evaluacion'),
+    createError(500, 'Gemini did not return evaluation content'),
 
   interactionStatusError: (status) =>
-    createError(500, `La interaccion de Gemini termino con estado: ${status}`),
+    createError(500, `Gemini interaction finished with status: ${status}`),
 
   messageSendError: (originalError) => {
-    console.error('Error enviando mensaje a Gemini:', originalError);
-    return createError(500, 'Error enviando mensaje a Gemini');
+    console.error('Error sending message to Gemini:', originalError);
+    return createError(500, 'Error sending message to Gemini');
   },
 };
 
 const ollama = {
   missingSessionId: () =>
-    createError(400, 'sessionId es requerido para usar el proveedor Ollama'),
+    createError(400, 'sessionId is required to use Ollama provider'),
 
   noTextContent: () =>
-    createError(500, 'Ollama no devolvio contenido de texto'),
+    createError(500, 'Ollama did not return text content'),
 
   noEvaluationContent: () =>
-    createError(500, 'Ollama no devolvio contenido para la evaluacion'),
+    createError(500, 'Ollama did not return evaluation content'),
 
   messageSendError: (originalError) => {
-    console.error('Error enviando mensaje a Ollama:', originalError);
-    return createError(500, 'Error enviando mensaje a Ollama');
+    console.error('Error sending message to Ollama:', originalError);
+    return createError(500, 'Error sending message to Ollama');
   },
 
   evaluationError: (originalError) => {
-    console.error('Error evaluando solucion con Ollama:', originalError);
-    return createError(500, 'Error evaluando la solucion con Ollama');
+    console.error('Error evaluating solution with Ollama:', originalError);
+    return createError(500, 'Error evaluating the solution with Ollama');
+  },
+};
+
+const alma = {
+  noTextContent: () =>
+    createError(500, 'ALMA did not return text content'),
+
+  noEvaluationContent: () =>
+    createError(500, 'ALMA did not return evaluation content'),
+
+  messageSendError: (originalError) => {
+    console.error('Error sending message to ALMA:', originalError);
+    return createError(500, 'Error sending message to ALMA');
+  },
+
+  evaluationError: (originalError) => {
+    console.error('Error evaluating solution with ALMA:', originalError);
+    return createError(500, 'Error evaluating the solution with ALMA');
   },
 };
 
@@ -84,6 +102,7 @@ const Errors = {
   openAI,
   gemini,
   ollama,
+  alma,
 };
 
 module.exports = Errors;

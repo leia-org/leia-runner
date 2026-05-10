@@ -9,22 +9,22 @@ module.exports.evaluateSolution = async function evaluateSolution(req, res) {
       return res.status(400).send({ error: 'SessionId and result are required' });
     }
 
-    // Obtener la sesión
+    // Get the session
     const sessionData = await sessionService.getSession(sessionId);
     if (!sessionData) {
       return res.status(404).send({ error: `Session with ID: ${sessionId} not found` });
     }
 
-    // Obtener los metadatos de LEIA
+    // Obtain LEIA metadata
     const leiaMeta = await sessionService.getLeiaMeta(sessionId);
     if (!leiaMeta) {
       return res.status(404).send({ error: `LEIA metadata for session ID: ${sessionId} not found` });
     }
 
-    // Obtener el modelo
+    // Get the model
     const model = modelManager.getModel(sessionData.modelName);
 
-    // Evaluar la solución
+    // Evaluate the solution
     const evaluationResult = await model.evaluateSolution({
       leiaMeta,
       result

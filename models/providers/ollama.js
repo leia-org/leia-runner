@@ -1,182 +1,161 @@
 require('dotenv').config();
+const { Ollama } = require('ollama');
 const BaseModel = require('./baseModel');
-const Errors = require('../../utils/errors');
-const ProviderState = require('../providerState');
-const { ConversationStore } = require('../conversationStore');
 
+const ollama = new Ollama({ host: process.env.OLLAMA_HOST || 'http://localhost:11434' });
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'gemma3:1b';
+
+/**
+ * Model provider based on Ollama (local models)
+ */
 class OllamaProvider extends BaseModel {
   constructor() {
     super();
     this.name = 'ollama';
-    this.model = process.env.OLLAMA_MODEL || 'llama3.1:8b';
-    this.evaluationModel = process.env.OLLAMA_EVALUATION_MODEL || this.model;
-    this.baseUrl = (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/+$/, '');
-    this.conversationStore = new ConversationStore({
-      providerName: 'ollama',
-      defaultMaxMessages: 60
-    });
-  }
-
-  // Requerido por BaseModel
-  createClient() {
-    return {
-      baseUrl: this.baseUrl,
-      apiKey: process.env.OLLAMA_API_KEY || '',
-    };
-  }
-
-  async sendMessage(options) {
-    const { sessionId, message, sessionData } = options;
-
-    if (!sessionId) {
-      throw Errors.ollama.missingSessionId();
-    }
-
-    const state = new ProviderState(sessionData);
-    const systemInstruction = state.getSystemInstruction();
-
-    try {
-      const conversationMessages = await this.conversationStore.buildConversationForRequest(
-        sessionId,
-        systemInstruction,
-        message
-      );
-
-      const chatResponse = await this.createChatCompletion({
-        model: this.model,
-        messages: conversationMessages,
-      });
-
-      const responseMessage = this.extractAssistantMessage(chatResponse);
-
-      if (!responseMessage) {
-        throw Errors.ollama.noTextContent();
-      }
-
-      await this.conversationStore.storeAssistantResponse(sessionId, responseMessage);
-
-      state.update({
-        conversationKey: this.conversationStore.getConversationKey(sessionId),
-        model: this.model,
-      });
-
-      return {
-        message: responseMessage,
-        sessionData: state.buildSessionData(sessionId),
-      };
-    } catch (error) {
-      throw Errors.ollama.messageSendError(error);
-    }
+    this.threads = {};
   }
 
   /**
-   * Realiza la llamada al API de Ollama y devuelve la evaluación estructurada.
-   * Invocado por BaseModel.evaluateSolution.
-   * @param {string} prompt - Prompt de evaluación ya construido
-   * @returns {Promise<Object>} - { score, evaluation }
+   * Creates a new session with Ollama
+   * @param {Object} options - Options for creating the session
+   * @param {string} options.instructions - Initial instructions for the assistant
+   * @param {string} options.sessionId - Session ID
+   * @returns {Promise<Object>} - Details of the created session
    */
-  async generateEvaluationResponse(prompt) {
+  async createSession(options) {
+    const { instructions, sessionId } = options;
+
     try {
-      const response = await this.createChatCompletion({
-        model: this.evaluationModel,
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are an expert evaluator. Your task is to evaluate solutions to problems and provide detailed feedback.',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        format: this.getEvaluationResponseFormat(),
-      });
+      this.threads[sessionId] = [
+        {
+          role: 'system',
+          content: [{ type: 'text', text: instructions }]
+        }
+      ];
 
-      const responseMessage = this.extractAssistantMessage(response);
+      return {
+        assistantId: sessionId,
+        threadId: sessionId
+      };
+    } catch (error) {
+      console.error('Error creating session with Ollama:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Sends a message to the model
+   * @param {Object} options - Options for sending the message
+   * @param {string} options.sessionId - Session ID
+   * @param {string} options.message - Message to send
+   * @param {Object} options.sessionData - Session data
+   * @returns {Promise<Object>} - Model response
+   */
 
-      if (!responseMessage) {
-        throw Errors.ollama.noEvaluationContent();
+  async sendMessage(options) {
+    const { message, sessionData } = options;
+    const { threadId } = sessionData;
+    
+    try {
+      // Initialize thread if it doesn't exist (might happen if server restarted)
+      if (!this.threads[threadId]) {
+        this.threads[threadId] = [];
       }
 
-      return JSON.parse(this.sanitizeJsonResponse(responseMessage));
+      // Add message to thread
+      this.threads[threadId].push({
+        role: "user",
+        content: message
+      });
+
+      // Transform messages to the format Ollama expects (content as string)
+      const ollamaMessages = this.threads[threadId].map(msg => ({
+        role: msg.role,
+        content: Array.isArray(msg.content)
+          ? msg.content.map(c => c.text || c).join('')
+          : msg.content
+      }));
+
+      const response = await ollama.chat({
+        model: OLLAMA_MODEL,
+        messages: ollamaMessages,
+      })
+
+      const messageContent = response.message.content;
+
+      this.threads[threadId].push({
+        role: "assistant",
+        content: messageContent
+      });
+
+
+      return { message: messageContent };
+    
     } catch (error) {
-      throw Errors.ollama.evaluationError(error);
+      console.error('Error sending message to Ollama:', error);
+      throw error;
     }
   }
 
-  // Métodos auxiliares
+  async evaluateSolution(options){
+    const {leiaMeta, result} = options;
 
-  async createChatCompletion({ model, messages, format }) {
-    const headers = {
-      'Content-Type': 'application/json',
-    };
+    const { solution, solutionFormat } = leiaMeta;
 
-    const requestBody = {
-      model,
-      messages,
-      stream: false,
-    };
+    try {
+      // Create a prompt to evaluate the solution
+      const evaluationPrompt = `
+        Evaluate the following solution for a problem:
 
-    if (format) {
-      requestBody.format = format;
+        Expected solution:
+        ${solution}
+
+        Provided solution:
+        ${result}
+
+        The Format to compare is:
+        ${solutionFormat}
+
+        Evaluate the provided solution by comparing it with the expected solution.
+        Assign a score between 0 and 10, where:
+        - 10 means the solution is perfect
+        - 0 means the solution is completely incorrect
+        Provide a detailed evaluation in Markdown format.
+
+        Respond ONLY with a JSON object in the following format:
+        {
+          "score": [score between 0 and 10],
+          "evaluation": "[detailed evaluation in Markdown format]"
+        }`;
+
+      const response = await ollama.chat({
+        model: OLLAMA_MODEL,
+        messages: [
+          {
+            role: "system",
+            content: "You are an expert evaluator. Your task is to evaluate solutions to problems and provide detailed feedback."
+          },
+          {
+            role: "user",
+            content: evaluationPrompt
+          }
+        ],
+        format: 'json'
+      })
+
+      // Make a request to evaluate the solution
+
+      // Extract the content from the response
+      const messageContent = response.message.content;
+      
+      // Parse the JSON response
+      const evaluationResult = JSON.parse(messageContent);
+      return evaluationResult;
+    } catch (error){
+      console.error('Error evaluating solution with Ollama:', error);
+      throw error;
     }
-
-    const response = await fetch(`${this.baseUrl}/api/chat`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(requestBody),
-    });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`Ollama request failed (${response.status}): ${errorBody}`);
-    }
-
-    const responseData = await response.json();
-
-    if (responseData?.error) {
-      throw new Error(responseData.error);
-    }
-
-    return responseData;
-  }
-
-  extractAssistantMessage(response) {
-    if (!response || typeof response !== 'object') {
-      return '';
-    }
-
-    const content = response.message && typeof response.message.content === 'string'
-      ? response.message.content.trim()
-      : '';
-
-    return content;
-  }
-
-  getEvaluationResponseFormat() {
-    return {
-      type: 'object',
-      properties: {
-        score: {
-          type: 'number',
-          description: 'Score between 0 and 10',
-        },
-        evaluation: {
-          type: 'string',
-          description: 'Detailed evaluation in Markdown format',
-        },
-      },
-      required: ['score', 'evaluation'],
-    };
-  }
-
-  sanitizeJsonResponse(responseText) {
-    const trimmedResponse = responseText.trim();
-    const fencedMatch = trimmedResponse.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-
-    return fencedMatch ? fencedMatch[1].trim() : trimmedResponse;
   }
 }
 
-module.exports = new OllamaProvider();
+module.exports = new OllamaProvider(); 

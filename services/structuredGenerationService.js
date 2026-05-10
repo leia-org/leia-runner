@@ -49,7 +49,7 @@ class StructuredGenerationService {
         });
       } catch (error) {
         throw new Error(
-          `No se pudo cargar @google/genai. Asegurate de usar Node 20+ y tener la dependencia instalada. Detalle: ${error.message}`
+          `Could not load @google/genai. Make sure you use Node 20+ and have the dependency installed. Detail: ${error.message}`
         );
       }
     }

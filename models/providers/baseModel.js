@@ -12,7 +12,7 @@ class BaseModel {
   // Methods implemented for all providers by default
 
   /**
-   * Obtiene el API key del proveedor desde la variable de entorno.
+   * Gets the provider's API key from the environment variable.
    * @returns {string|undefined}
    */
   getApiKey() {
@@ -20,7 +20,7 @@ class BaseModel {
   }
 
   /**
-   * Valida que el API key esté configurado.
+   * Validates that the API key is configured.
    * @returns {string}
    */
   ensureApiKey() {
@@ -38,9 +38,9 @@ class BaseModel {
   }
 
    /**
-   * Obtiene el cliente del proveedor (lazy initialization).
-   * @returns {Object} Cliente del proveedor
-   * @throws {Error} Si la API key no está configurada
+   * Gets the provider client (lazy initialization).
+   * @returns {Object} Provider client
+   * @throws {Error} If API key is not configured
    */
   getClient() {
     const apiKey = this.ensureApiKey();
@@ -51,10 +51,10 @@ class BaseModel {
   }
 
   /**
-   * Obtiene el estado del proveedor desde sessionData usando ProviderState.
-   * Este método centraliza la lógica de extracción de estado de sesión.
-   * @param {Object} sessionData - Datos de sesión
-   * @returns {Object} Estado del proveedor
+   * Gets the provider state from sessionData using ProviderState.
+   * This method centralizes session state extraction logic.
+   * @param {Object} sessionData - Session data
+   * @returns {Object} Provider state
    */
   getProviderState(sessionData = {}) {
     const state = new ProviderState(sessionData);
@@ -67,9 +67,9 @@ class BaseModel {
   }
 
   /**
-   * Crea una nueva sesión
-   * @param {Object} options - Opciones para crear la sesión
-   * @returns {Promise<Object>} - Datos de la sesión creada
+   * Creates a new session
+   * @param {Object} options - Options for creating the session
+   * @returns {Promise<Object>} - Created session data
    */
   async createSession(options) {
     const { instructions } = options;
@@ -89,11 +89,11 @@ class BaseModel {
   }
 
   /**
-   * Evalúa una solución de estudiante
-   * @param {Object} options - Opciones para la evaluación
-   * @param {Object} options.leiaMeta - Objeto LEIA con la configuración del problema
-   * @param {string} options.result - Solución proporcionada por el estudiante
-   * @returns {Promise<Object>} - Resultado de la evaluación
+   * Evaluates a student solution
+   * @param {Object} options - Options for evaluation
+   * @param {Object} options.leiaMeta - LEIA object with problem configuration
+   * @param {string} options.result - Solution provided by the student
+   * @returns {Promise<Object>} - Evaluation result
    */
   async evaluateSolution(options) {
     const { leiaMeta, result } = options;
@@ -113,36 +113,36 @@ class BaseModel {
  // To be implemented by each provider
 
   /**
-   * Crea el cliente del proveedor. Debe ser implementado por cada subclase.
-   * Solo se invoca una vez, la primera vez que se necesita el cliente.
-   * @returns {Object} Cliente del proveedor
+   * Creates the provider client. Must be implemented by each subclass.
+   * Only called once, the first time the client is needed.
+   * @returns {Object} Provider client
    */
   createClient() {
     throw new Error('Method createClient must be implemented by subclasses');
   }
 
   /**
-   * Envía un mensaje a la sesión
-   * @param {Object} options - Opciones para enviar el mensaje
-   * @returns {Promise<Object>} - Respuesta del modelo
+   * Sends a message to the session
+   * @param {Object} options - Options for sending the message
+   * @returns {Promise<Object>} - Model response
    */
   async sendMessage(options) {
     throw new Error('Method sendMessage must be implemented by subclasses');
   }
 
   /**
-   * Define el threadId para la sesión. Este método debe ser implementado por cada proveedor para determinar cómo manejar el contexto de la conversación.
-   * @returns {string} El threadId a usar para la sesión, o un string vacío si el proveedor no utiliza threadId. 
+   * Defines the threadId for the session. This method must be implemented by each provider to determine how to handle conversation context.
+   * @returns {string} The threadId to use for the session, or an empty string if the provider does not use threadId. 
    */
   async setThreadId() {
     return '';
   }
 
   /**
-   * Genera la respuesta de evaluación a partir de la respuesta cruda del modelo. 
-   * Este método debe ser implementado por cada proveedor para definir cómo se procesa la respuesta del modelo para obtener la evaluación estructurada.
-   * @returns {Object} La evaluación estructurada a partir de la respuesta del modelo
-   * @throws {Error} Si el método no es implementado por la subclase
+   * Generates the evaluation response from the model's raw response. 
+   * This method must be implemented by each provider to define how the model's response is processed to get the structured evaluation.
+   * @returns {Object} The structured evaluation from the model's response
+   * @throws {Error} If the method is not implemented by the subclass
    */
   generateEvaluationResponse() {
     throw new Error('Method generateEvaluationResponse must be implemented by subclasses');
