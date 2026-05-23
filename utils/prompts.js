@@ -24,6 +24,18 @@ const Prompts = {
     '}',
     ...(evaluationPrompt ? ['', evaluationPrompt] : []),
   ].join('\n'),
+
+  personaAvatar: ({ name, description, personality }) => [
+    "Create a square cartoon avatar icon for a persona.",
+    "Style: clean flat vector-like illustration, thick black outlines, simple face and shoulders, plain muted solid background.",
+    "Composition: centered head and upper shoulders, no text, no logo, no watermark, no photorealism.",
+    "Output must be a single square image.",
+    `Persona name: ${name || "Unknown"}.`,
+    `Description: ${description || "No description provided"}.`,
+    `Personality: ${personality || "No personality provided"}.`,
+  ].join("\n"),
+
+  
 };
 
 module.exports = Prompts;

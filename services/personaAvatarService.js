@@ -1,4 +1,5 @@
 const { GoogleGenAI } = require("@google/genai");
+const prompts = require("../prompts");
 const sharp = require("sharp");
 
 const MAX_AVATAR_BYTES = 4 * 1024;
@@ -15,19 +16,7 @@ function getGeminiClient() {
   return new GoogleGenAI({ apiKey });
 }
 
-function buildPrompt({ name, description, personality }) {
-  return [
-    "Create a square cartoon avatar icon for a persona.",
-    "Style: clean flat vector-like illustration, thick black outlines, simple face and shoulders, plain muted solid background.",
-    "Composition: centered head and upper shoulders, no text, no logo, no watermark, no photorealism.",
-    "Output must be a single square image.",
-    `Persona name: ${name || "Unknown"}.`,
-    `Description: ${description || "No description provided"}.`,
-    `Personality: ${personality || "No personality provided"}.`,
-  ].join("\n");
-}
-
-function extractImageBuffer(response) {
+function extractImage(response) {
   const parts = response?.candidates?.[0]?.content?.parts || [];
   const imagePart = parts.find((part) => part.inlineData?.data);
 
@@ -38,7 +27,7 @@ function extractImageBuffer(response) {
   return Buffer.from(imagePart.inlineData.data, "base64");
 }
 
-async function compressToAvatarDataUrl(sourceBuffer) {
+async function compressAvatarToDataUrl(sourceBuffer) {
   const sizes = [96, 80, 64, 48, 40, 32];
   const qualities = [80, 70, 60, 50, 40, 30, 20];
 
@@ -73,11 +62,11 @@ async function generatePersonaAvatar({ name, description, personality }) {
   const ai = getGeminiClient();
   const response = await ai.models.generateContent({
     model: IMAGE_MODEL,
-    contents: buildPrompt({ name, description, personality }),
+    contents: prompts.personaAvatar({ name, description, personality }),
   });
 
-  const sourceBuffer = extractImageBuffer(response);
-  const avatar = await compressToAvatarDataUrl(sourceBuffer);
+  const sourceBuffer = extractImage(response);
+  const avatar = await compressAvatarToDataUrl(sourceBuffer);
 
   return {
     avatar,
