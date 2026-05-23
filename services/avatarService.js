@@ -74,6 +74,23 @@ async function generatePersonaAvatar({ name, description, personality }) {
   };
 }
 
+async function generateProblemAvatar(problem) {
+  const ai = getGeminiClient();
+  const response = await ai.models.generateContent({
+    model: IMAGE_MODEL,
+    contents: prompts.problemAvatar(problem),
+  });
+
+  const sourceBuffer = extractImage(response);
+  const avatar = await compressAvatarToDataUrl(sourceBuffer);
+
+  return {
+    avatar,
+    sizeBytes: Buffer.byteLength(avatar, "utf8"),
+  };
+}
+
 module.exports = {
   generatePersonaAvatar,
+  generateProblemAvatar,
 };

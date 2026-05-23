@@ -35,5 +35,6 @@ router.post('/transcriptions/generate', transcriptionController.generateTranscri
 router.post('/problems/generate', problemGeneratorController.generateProblem);
 router.post('/behaviours/generate', behaviourGeneratorController.generateBehaviour);
 router.post('/personas/avatar', avatarController.generatePersonaAvatar);
+router.post('/problems/avatar', avatarController.generateProblemAvatar);
 
 module.exports = router;

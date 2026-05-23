@@ -28,11 +28,22 @@ const Prompts = {
   personaAvatar: ({ name, description, personality }) => [
     "Create a square cartoon avatar icon for a persona.",
     "Style: clean flat vector-like illustration, thick black outlines, simple face and shoulders, plain muted solid background.",
+    "Keep it very simple and readable at tiny sizes: use large clear shapes, very few details, high contrast, and one main visual idea.",
     "Composition: centered head and upper shoulders, no text, no logo, no watermark, no photorealism.",
     "Output must be a single square image.",
     `Persona name: ${name || "Unknown"}.`,
     `Description: ${description || "No description provided"}.`,
     `Personality: ${personality || "No personality provided"}.`,
+  ].join("\n"),
+
+  problemAvatar: ({ name, description }) => [
+    "Create a square cartoon icon for a problem or exercise.",
+    "Style: clean flat vector-like illustration, thick black outlines, simple symbolic scene, plain muted solid background.",
+    "Keep it very simple and readable at tiny sizes: use large clear shapes, very few details, high contrast, and one main visual idea.",
+    "Composition: centered main object or situation, no text, no logo, no watermark, no photorealism.",
+    "Output must be a single square image.",
+    `Problem name: ${name || "Unknown"}.`,
+    `Description: ${description || "No description provided"}.`,
   ].join("\n"),
 
   

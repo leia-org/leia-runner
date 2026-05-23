@@ -36,6 +36,42 @@ const generatePersonaAvatar = async (req, res) => {
   }
 };
 
+const generateProblemAvatar = async (req, res) => {
+  try {
+    const { name, description } = req.body;
+    const hasProblemData = [name, description].some(
+      (value) => typeof value === "string" && value.trim().length > 0
+    );
+
+    if (!hasProblemData) {
+      return res.status(400).json({
+        error: "Problem data is required",
+      });
+    }
+
+    const result = await avatarService.generateProblemAvatar({
+      name,
+      description,
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error("Error generating problem avatar:", error);
+
+    if (error.code === "invalid_api_key" || error.message?.includes("API_KEY is not configured")) {
+      return res.status(500).json({
+        error: "AI provider configuration error",
+      });
+    }
+
+    res.status(500).json({
+      error: "Failed to generate problem avatar",
+      message: error.message,
+    });
+  }
+};
+
 module.exports = {
   generatePersonaAvatar,
+  generateProblemAvatar,
 };
