@@ -1,4 +1,4 @@
-const personaAvatarService = require("../services/personaAvatarService");
+const avatarService = require("../services/avatarService");
 
 const generatePersonaAvatar = async (req, res) => {
   try {
@@ -13,7 +13,7 @@ const generatePersonaAvatar = async (req, res) => {
       });
     }
 
-    const result = await personaAvatarService.generatePersonaAvatar({
+    const result = await avatarService.generatePersonaAvatar({
       name: avatarName,
       description,
       personality,
