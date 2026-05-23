@@ -71,7 +71,53 @@ const generateProblemAvatar = async (req, res) => {
   }
 };
 
+const generateLeiaAvatar = async (req, res) => {
+  try {
+    const {
+      leiaName,
+      personaName,
+      personaDescription,
+      problemDescription,
+    } = req.body;
+    const hasLeiaData = [
+      leiaName,
+      personaName,
+      personaDescription,
+      problemDescription,
+    ].some((value) => typeof value === "string" && value.trim().length > 0);
+
+    if (!hasLeiaData) {
+      return res.status(400).json({
+        error: "LEIA data is required",
+      });
+    }
+
+    const result = await avatarService.generateLeiaAvatar({
+      leiaName,
+      personaName,
+      personaDescription,
+      problemDescription,
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error("Error generating LEIA avatar:", error);
+
+    if (error.code === "invalid_api_key" || error.message?.includes("API_KEY is not configured")) {
+      return res.status(500).json({
+        error: "AI provider configuration error",
+      });
+    }
+
+    res.status(500).json({
+      error: "Failed to generate LEIA avatar",
+      message: error.message,
+    });
+  }
+};
+
 module.exports = {
   generatePersonaAvatar,
   generateProblemAvatar,
+  generateLeiaAvatar,
 };

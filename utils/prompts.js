@@ -46,6 +46,23 @@ const Prompts = {
     `Description: ${description || "No description provided"}.`,
   ].join("\n"),
 
+  leiaAvatar: ({
+    leiaName,
+    personaName,
+    personaDescription,
+    problemDescription,
+  }) => [
+    "Create a square cartoon icon for a LEIA learning assistant configuration.",
+    "Style: clean flat vector-like illustration, thick black outlines, simple symbolic scene, plain muted solid background.",
+    "Keep it very simple and readable at tiny sizes: use large clear shapes, very few details, high contrast, and one main visual idea.",
+    "Composition: centered main subject or situation, no text, no logo, no watermark, no photorealism.",
+    "Output must be a single square image.",
+    `LEIA name: ${leiaName || "Unknown"}.`,
+    `Persona name: ${personaName || "Unknown"}.`,
+    `Persona description: ${personaDescription || "No persona description provided"}.`,
+    `Problem description: ${problemDescription || "No problem description provided"}.`,
+  ].join("\n"),
+
   
 };
 

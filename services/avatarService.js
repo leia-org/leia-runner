@@ -90,7 +90,24 @@ async function generateProblemAvatar(problem) {
   };
 }
 
+async function generateLeiaAvatar(leia) {
+  const ai = getGeminiClient();
+  const response = await ai.models.generateContent({
+    model: IMAGE_MODEL,
+    contents: prompts.leiaAvatar(leia),
+  });
+
+  const sourceBuffer = extractImage(response);
+  const avatar = await compressAvatarToDataUrl(sourceBuffer);
+
+  return {
+    avatar,
+    sizeBytes: Buffer.byteLength(avatar, "utf8"),
+  };
+}
+
 module.exports = {
   generatePersonaAvatar,
   generateProblemAvatar,
+  generateLeiaAvatar,
 };
