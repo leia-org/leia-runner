@@ -5,6 +5,12 @@ const sharp = require("sharp");
 const MAX_AVATAR_BYTES = 4 * 1024;
 const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image";
 
+const AVATAR_PROMPTS = {
+  persona: prompts.personaAvatar,
+  problem: prompts.problemAvatar,
+  leia: prompts.leiaAvatar,
+};
+
 function getGeminiClient() {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) {
@@ -58,11 +64,17 @@ async function compressAvatarToDataUrl(sourceBuffer) {
   return dataUrl;
 }
 
-async function generatePersonaAvatar({ name, description, personality }) {
+async function generateAvatar(type, payload) {
+  const promptBuilder = AVATAR_PROMPTS[type];
+
+  if (!promptBuilder) {
+    throw new Error(`Unsupported avatar type: ${type}`);
+  }
+
   const ai = getGeminiClient();
   const response = await ai.models.generateContent({
     model: IMAGE_MODEL,
-    contents: prompts.personaAvatar({ name, description, personality }),
+    contents: promptBuilder(payload),
   });
 
   const sourceBuffer = extractImage(response);
@@ -72,38 +84,18 @@ async function generatePersonaAvatar({ name, description, personality }) {
     avatar,
     sizeBytes: Buffer.byteLength(avatar, "utf8"),
   };
+}
+
+async function generatePersonaAvatar({ name, description, personality }) {
+  return generateAvatar("persona", { name, description, personality });
 }
 
 async function generateProblemAvatar(problem) {
-  const ai = getGeminiClient();
-  const response = await ai.models.generateContent({
-    model: IMAGE_MODEL,
-    contents: prompts.problemAvatar(problem),
-  });
-
-  const sourceBuffer = extractImage(response);
-  const avatar = await compressAvatarToDataUrl(sourceBuffer);
-
-  return {
-    avatar,
-    sizeBytes: Buffer.byteLength(avatar, "utf8"),
-  };
+  return generateAvatar("problem", problem);
 }
 
 async function generateLeiaAvatar(leia) {
-  const ai = getGeminiClient();
-  const response = await ai.models.generateContent({
-    model: IMAGE_MODEL,
-    contents: prompts.leiaAvatar(leia),
-  });
-
-  const sourceBuffer = extractImage(response);
-  const avatar = await compressAvatarToDataUrl(sourceBuffer);
-
-  return {
-    avatar,
-    sizeBytes: Buffer.byteLength(avatar, "utf8"),
-  };
+  return generateAvatar("leia", leia);
 }
 
 module.exports = {

@@ -1,5 +1,24 @@
 const avatarService = require("../services/avatarService");
 
+function hasAnyText(values) {
+  return values.some((value) => typeof value === "string" && value.trim().length > 0);
+}
+
+function handleAvatarError(res, error, label) {
+  console.error(`Error generating ${label} avatar:`, error);
+
+  if (error.code === "invalid_api_key" || error.message?.includes("API_KEY is not configured")) {
+    return res.status(500).json({
+      error: "AI provider configuration error",
+    });
+  }
+
+  return res.status(500).json({
+    error: `Failed to generate ${label} avatar`,
+    message: error.message,
+  });
+}
+
 const generatePersonaAvatar = async (req, res) => {
   try {
     const { name, fullName, firstName, description, personality } = req.body;
@@ -7,7 +26,7 @@ const generatePersonaAvatar = async (req, res) => {
       (value) => typeof value === "string" && value.trim().length > 0
     );
 
-    if (!avatarName && !description && !personality) {
+    if (!hasAnyText([avatarName, description, personality])) {
       return res.status(400).json({
         error: "Persona data is required",
       });
@@ -21,29 +40,15 @@ const generatePersonaAvatar = async (req, res) => {
 
     res.json(result);
   } catch (error) {
-    console.error("Error generating persona avatar:", error);
-
-    if (error.code === "invalid_api_key" || error.message?.includes("API_KEY is not configured")) {
-      return res.status(500).json({
-        error: "AI provider configuration error",
-      });
-    }
-
-    res.status(500).json({
-      error: "Failed to generate persona avatar",
-      message: error.message,
-    });
+    handleAvatarError(res, error, "persona");
   }
 };
 
 const generateProblemAvatar = async (req, res) => {
   try {
     const { name, description } = req.body;
-    const hasProblemData = [name, description].some(
-      (value) => typeof value === "string" && value.trim().length > 0
-    );
 
-    if (!hasProblemData) {
+    if (!hasAnyText([name, description])) {
       return res.status(400).json({
         error: "Problem data is required",
       });
@@ -56,18 +61,7 @@ const generateProblemAvatar = async (req, res) => {
 
     res.json(result);
   } catch (error) {
-    console.error("Error generating problem avatar:", error);
-
-    if (error.code === "invalid_api_key" || error.message?.includes("API_KEY is not configured")) {
-      return res.status(500).json({
-        error: "AI provider configuration error",
-      });
-    }
-
-    res.status(500).json({
-      error: "Failed to generate problem avatar",
-      message: error.message,
-    });
+    handleAvatarError(res, error, "problem");
   }
 };
 
@@ -79,14 +73,8 @@ const generateLeiaAvatar = async (req, res) => {
       personaDescription,
       problemDescription,
     } = req.body;
-    const hasLeiaData = [
-      leiaName,
-      personaName,
-      personaDescription,
-      problemDescription,
-    ].some((value) => typeof value === "string" && value.trim().length > 0);
 
-    if (!hasLeiaData) {
+    if (!hasAnyText([leiaName, personaName, personaDescription, problemDescription])) {
       return res.status(400).json({
         error: "LEIA data is required",
       });
@@ -101,18 +89,7 @@ const generateLeiaAvatar = async (req, res) => {
 
     res.json(result);
   } catch (error) {
-    console.error("Error generating LEIA avatar:", error);
-
-    if (error.code === "invalid_api_key" || error.message?.includes("API_KEY is not configured")) {
-      return res.status(500).json({
-        error: "AI provider configuration error",
-      });
-    }
-
-    res.status(500).json({
-      error: "Failed to generate LEIA avatar",
-      message: error.message,
-    });
+    handleAvatarError(res, error, "LEIA");
   }
 };
 
