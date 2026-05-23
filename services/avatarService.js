@@ -1,5 +1,5 @@
 const { GoogleGenAI } = require("@google/genai");
-const prompts = require("../prompts");
+const prompts = require("../utils/prompts");
 const sharp = require("sharp");
 
 const MAX_AVATAR_BYTES = 4 * 1024;

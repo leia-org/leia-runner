@@ -7,7 +7,7 @@ const cacheController = require('../controllers/cacheController');
 const transcriptionController = require('../controllers/transcriptionController');
 const problemGeneratorController = require('../controllers/problemGeneratorController');
 const behaviourGeneratorController = require('../controllers/behaviourGeneratorController');
-const personaAvatarController = require('../controllers/personaAvatarController');
+const avatarController = require('../controllers/avatarController');
 const { bearerAuth } = require('../utils/auth');
 
 // Aplicar middleware de autenticación a todas las rutas
@@ -34,6 +34,6 @@ router.post('/transcriptions/generate', transcriptionController.generateTranscri
 // Endpoint para generación de problemas con IA
 router.post('/problems/generate', problemGeneratorController.generateProblem);
 router.post('/behaviours/generate', behaviourGeneratorController.generateBehaviour);
-router.post('/personas/avatar', personaAvatarController.generatePersonaAvatar);
+router.post('/personas/avatar', avatarController.generatePersonaAvatar);
 
 module.exports = router;
