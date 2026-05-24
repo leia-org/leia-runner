@@ -153,10 +153,6 @@ class SessionService {
         return null; // Return null instead of throwing an error
       }
       
-      if (sessionData.isMultiLEIA === true || sessionData.isMultiLEIA === 'true') {
-        return await this.sendMultiMessage(sessionId, message, sessionData);
-      }
-
       // Get the model for this session
       const model = modelManager.getModel(sessionData.modelName);
       

@@ -171,6 +171,163 @@ paths:
                     type: string
       security:
         - bearerAuth: []
+
+  /api/v1/multi-leias:
+    post:
+      operationId: createMultiLeia
+      summary: Creates a new multi-LEIA instance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sessionId:
+                  type: string
+                  description: Unique session ID
+                leias:
+                  type: array
+                  description: LEIA configuration objects participating in the multi-LEIA session
+                  items:
+                    type: object
+                runnerConfiguration:
+                  type: object
+                  properties:
+                    provider:
+                      type: string
+                      description: Name of the model provider to use
+      responses:
+        "201":
+          description: Multi-LEIA created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessionId:
+                    type: string
+                  modelName:
+                    type: string
+                  created:
+                    type: boolean
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "409":
+          description: Session already exists
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  sessionId:
+                    type: string
+                  modelName:
+                    type: string
+                  created:
+                    type: boolean
+                    default: false
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+      security:
+        - bearerAuth: []
+
+  /api/v1/multi-leias/{sessionId}/messages:
+    post:
+      operationId: sendMultiLeiaMessage
+      summary: Sends a message to a multi-LEIA session
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          description: Unique session ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  description: Message to send to the multi-LEIA session
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  leiaId:
+                    type: string
+                    nullable: true
+                    description: LEIA that generated the response
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "404":
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
         
   /api/v1/models:
     get:

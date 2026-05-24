@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const leiasController = require('../controllers/leiasController');
+const multiLeiasController = require('../controllers/multiLeiasController');
 const modelsController = require('../controllers/modelsController');
 const evaluationController = require('../controllers/evaluationController');
 const cacheController = require('../controllers/cacheController');
@@ -14,9 +15,11 @@ router.use(bearerAuth);
 
 // Endpoint para crear una nueva instancia de LEIA
 router.post('/leias', leiasController.createLeia);
+router.post('/multi-leias', multiLeiasController.createMultiLeia);
 
 // Endpoint para enviar mensajes a LEIA
 router.post('/leias/:sessionId/messages', leiasController.sendLeiaMessage);
+router.post('/multi-leias/:sessionId/messages', multiLeiasController.sendMultiLeiaMessage);
 
 // Endpoint para listar los modelos disponibles
 router.get('/models', modelsController.listModels);

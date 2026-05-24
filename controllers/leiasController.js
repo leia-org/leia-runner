@@ -2,11 +2,11 @@ const sessionService = require('../services/sessionService');
 
 module.exports.createLeia = async function createLeia(req, res) {
   try {
-    const { sessionId, leia, leias, isMultiLEIA } = req.body;
+    const { sessionId, leia } = req.body;
     const runnerConfiguration = req.body.runnerConfiguration || { provider: 'default' };
 
-    if (!sessionId || (!leia && !(isMultiLEIA && Array.isArray(leias) && leias.length > 0))) {
-      return res.status(400).send({ error: 'SessionId and leia or leias are required' });
+    if (!sessionId || !leia) {
+      return res.status(400).send({ error: 'SessionId and leia are required' });
     }
 
     // Check if session already exists
@@ -21,33 +21,6 @@ module.exports.createLeia = async function createLeia(req, res) {
     }
 
     const modelName = runnerConfiguration.provider || 'default';
-
-    if (isMultiLEIA) {
-      await sessionService.createMultiSession(
-        sessionId,
-        leias.map((currentLeia) => ({
-          leiaId: currentLeia.id,
-          instructions: buildInstructionsFromLeia(currentLeia),
-          solution: currentLeia.spec?.problem?.spec?.solution || '',
-          solutionFormat: currentLeia.spec?.problem?.spec?.solutionFormat || 'text',
-          evaluationPrompt: currentLeia.spec?.problem?.spec?.evaluationPrompt || '',
-        })),
-        modelName
-      );
-
-      await sessionService.storeLeiaMeta(sessionId, {
-        leiaId: leias[0].id || sessionId,
-        solution: leias[0].spec?.problem?.spec?.solution || '',
-        solutionFormat: leias[0].spec?.problem?.spec?.solutionFormat || 'text',
-        evaluationPrompt: leias[0].spec?.problem?.spec?.evaluationPrompt || ''
-      });
-
-      return res.status(201).send({
-        sessionId,
-        modelName,
-        created: true
-      });
-    }
 
     const instructions = buildInstructionsFromLeia(leia);
     await sessionService.createSession(sessionId, instructions, modelName);
