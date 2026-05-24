@@ -4,6 +4,7 @@ class CacheService {
   constructor() {
     this.sessionPrefix = 'session:';
     this.conversationPrefix = 'conversations:';
+    this.multiConversationPrefix = 'conversations/multi:';
     this.leiaMetaPrefix = 'leia:meta:';
     this.modelsPrefix = 'models:';
     this.validatedModelsKey = 'validated_models';
@@ -16,7 +17,7 @@ class CacheService {
    * @returns {string} sessionId o string vacío si no se puede extraer
    */
   extractSessionIdFromConversationKey(key) {
-    if (!key || !key.startsWith(this.conversationPrefix)) {
+    if (!key || (!key.startsWith(this.conversationPrefix) && !key.startsWith(this.multiConversationPrefix))) {
       return '';
     }
 
@@ -118,7 +119,7 @@ class CacheService {
     
     for (const key of keys) {
       try {
-        if (key.startsWith(this.conversationPrefix)) {
+        if (key.startsWith(this.conversationPrefix) || key.startsWith(this.multiConversationPrefix)) {
           const sessionId = this.extractSessionIdFromConversationKey(key);
 
           if (!sessionId) {
@@ -168,7 +169,7 @@ class CacheService {
     return keys.filter(key => 
       key === `${this.sessionPrefix}${sessionId}` ||
       key === `${this.leiaMetaPrefix}${sessionId}` ||
-      (key.startsWith(this.conversationPrefix) && key.endsWith(suffix))
+      ((key.startsWith(this.conversationPrefix) || key.startsWith(this.multiConversationPrefix)) && key.endsWith(suffix))
     );
   }
 
@@ -196,7 +197,8 @@ class CacheService {
 
             const conversationSuffix = `:${sessionId}`;
             const conversationKeys = keys.filter((keyName) =>
-              keyName.startsWith(this.conversationPrefix) && keyName.endsWith(conversationSuffix)
+              (keyName.startsWith(this.conversationPrefix) || keyName.startsWith(this.multiConversationPrefix)) &&
+              keyName.endsWith(conversationSuffix)
             );
 
             for (const conversationKey of conversationKeys) {
@@ -286,6 +288,7 @@ class CacheService {
       const patterns = [
         `${this.sessionPrefix}*`,
         `${this.conversationPrefix}*`,
+        `${this.multiConversationPrefix}*`,
         `${this.leiaMetaPrefix}*`,
         `${this.modelsPrefix}*`,
         this.validatedModelsKey
@@ -374,6 +377,7 @@ class CacheService {
       const patterns = [
         { name: 'sessions', pattern: `${this.sessionPrefix}*` },
         { name: 'conversations', pattern: `${this.conversationPrefix}*` },
+        { name: 'multiConversations', pattern: `${this.multiConversationPrefix}*` },
         { name: 'metadata', pattern: `${this.leiaMetaPrefix}*` },
         { name: 'models', pattern: `${this.modelsPrefix}*` }
       ];
@@ -387,11 +391,15 @@ class CacheService {
         let keys = await this.getKeysByPattern(pattern);
 
         if (name === 'sessions') {
-          keys = keys.filter(key => !key.startsWith(this.conversationPrefix));
+          keys = keys.filter(key => !key.startsWith(this.conversationPrefix) && !key.startsWith(this.multiConversationPrefix));
         }
 
         if (name === 'conversations') {
           keys = keys.filter(key => key.startsWith(this.conversationPrefix));
+        }
+
+        if (name === 'multiConversations') {
+          keys = keys.filter(key => key.startsWith(this.multiConversationPrefix));
         }
 
         stats.breakdown[name] = keys.length;

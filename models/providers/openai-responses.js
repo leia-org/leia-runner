@@ -62,6 +62,10 @@ class OpenAIResponsesProvider extends BaseModel {
 
         context.conversationId = conversationId;
         context.lastResponseId = response.id || state.get('lastResponseId');
+        state.update({
+            conversationId,
+            lastResponseId: context.lastResponseId,
+        });
 
         return response;
     }

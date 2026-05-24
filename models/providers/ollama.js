@@ -25,7 +25,7 @@ class OllamaProvider extends BaseModel {
 
     return this.createChatCompletion({
       model: this.model,
-      messages: conversationMessages,
+      messages: conversationMessages.map(({ role, content }) => ({ role, content })),
     });
   }
 

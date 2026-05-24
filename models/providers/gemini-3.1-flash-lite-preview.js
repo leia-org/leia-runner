@@ -34,6 +34,9 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     });
 
     context.previousInteractionId = interaction.id || previousInteractionId;
+    state.update({
+      previousInteractionId: context.previousInteractionId,
+    });
 
     return interaction;
   }

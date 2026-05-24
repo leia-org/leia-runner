@@ -1,5 +1,6 @@
 const { redisClient } = require('../config/redis');
 const modelManager = require('../models/modelManager');
+const simpleOrchestrator = require('../models/orchestrators/simpleOrchestrator');
 
 class SessionService {
   constructor() {
@@ -36,6 +37,20 @@ class SessionService {
       } catch (error) {
         console.warn('No se pudo parsear providerState, se usará el valor almacenado:', error.message);
       }
+    }
+
+    if (normalizedSessionData.leias) {
+      try {
+        normalizedSessionData.leias = JSON.parse(normalizedSessionData.leias);
+      } catch (error) {
+        console.warn('No se pudo parsear leias, se usará el valor almacenado:', error.message);
+      }
+    }
+
+    if (normalizedSessionData.isMultiLEIA === 'true') {
+      normalizedSessionData.isMultiLEIA = true;
+    } else if (normalizedSessionData.isMultiLEIA === 'false') {
+      normalizedSessionData.isMultiLEIA = false;
     }
 
     return normalizedSessionData;
@@ -95,6 +110,29 @@ class SessionService {
     }
   }
 
+  async createMultiSession(sessionId, leias, modelName = 'default') {
+    if (!Array.isArray(leias) || leias.length === 0) {
+      throw new Error('At least one LEIA is required for a multi-LEIA session');
+    }
+
+    const sessionData = {
+      sessionId,
+      modelName,
+      threadId: '',
+      providerState: {},
+      isMultiLEIA: true,
+      leias,
+      createdAt: Date.now()
+    };
+
+    await redisClient.hSet(
+      `${this.keyPrefix}${sessionId}`,
+      this.serializeSessionData(sessionData)
+    );
+
+    return sessionData;
+  }
+
   async getSession(sessionId) {
     try {
       const sessionData = await redisClient.hGetAll(`${this.keyPrefix}${sessionId}`);
@@ -115,6 +153,10 @@ class SessionService {
         return null; // Return null instead of throwing an error
       }
       
+      if (sessionData.isMultiLEIA === true || sessionData.isMultiLEIA === 'true') {
+        return await this.sendMultiMessage(sessionId, message, sessionData);
+      }
+
       // Get the model for this session
       const model = modelManager.getModel(sessionData.modelName);
       
@@ -135,6 +177,49 @@ class SessionService {
       console.error(`Error sending message in session ${sessionId}:`, error);
       throw error;
     }
+  }
+
+  async sendMultiMessage(sessionId, message, sessionData) {
+    const leias = Array.isArray(sessionData.leias) ? sessionData.leias : [];
+    if (leias.length === 0) {
+      throw new Error(`Multi-LEIA session ${sessionId} has no LEIAs`);
+    }
+
+    const selectedLeia = simpleOrchestrator.selectLeia(leias);
+    if (!selectedLeia) {
+      throw new Error(`Multi-LEIA session ${sessionId} could not select a LEIA`);
+    }
+    const model = modelManager.getModel(sessionData.modelName);
+    const selectedProviderState = sessionData.providerState || {};
+    const modelSessionData = {
+      ...sessionData,
+      providerState: {
+        ...selectedProviderState,
+        systemInstruction: selectedLeia.instructions,
+      },
+      isMultiLEIA: true,
+    };
+
+    const response = await model.sendMessage({
+      sessionId,
+      message,
+      sessionData: modelSessionData,
+      leiaId: selectedLeia.leiaId,
+    });
+
+    if (response?.sessionData) {
+      await this.updateSession(sessionId, {
+        ...response.sessionData,
+        isMultiLEIA: true,
+        leias,
+      });
+      delete response.sessionData;
+    }
+
+    return {
+      ...response,
+      leiaId: selectedLeia.leiaId,
+    };
   }
 
   /**

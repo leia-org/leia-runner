@@ -11,6 +11,7 @@ class BaseModel {
     this.envVar = null;
     this._client = null;
     this.conversationPrefix = 'conversations:';
+    this.multiConversationPrefix = 'conversations/multi:';
     this.defaultConversationTtlSeconds = 2629800;
   }
 
@@ -21,9 +22,10 @@ class BaseModel {
    * @param {string} sessionId - Session ID
    * @returns {string}
    */
-  getConversationKey(sessionId) {
+  getConversationKey(sessionId, isMultiLeia = false) {
     const normalizedSessionId = typeof sessionId === 'string' ? sessionId.trim() : '';
-    return `${this.conversationPrefix}${normalizedSessionId}`;
+    const prefix = isMultiLeia ? this.multiConversationPrefix : this.conversationPrefix;
+    return `${prefix}${normalizedSessionId}`;
   }
 
   /**
@@ -49,7 +51,7 @@ class BaseModel {
    * @param {string} content - Contenido del mensaje
    * @returns {Object|null}
    */
-  normalizeConversationMessage(role, content) {
+  normalizeConversationMessage(role, content, leiaId = null) {
     const normalizedRole = typeof role === 'string' ? role.trim() : '';
     const normalizedContent = typeof content === 'string' ? content.trim() : '';
 
@@ -61,10 +63,13 @@ class BaseModel {
       return null;
     }
 
-    return {
+    const message = {
       role: normalizedRole,
+      leiaId: leiaId ? String(leiaId) : null,
       content: normalizedContent,
     };
+
+    return message;
   }
 
   /**
@@ -77,7 +82,9 @@ class BaseModel {
       return [];
     }
 
-    const rawMessages = await redisClient.lRange(this.getConversationKey(sessionId), 0, -1);
+    const isMultiLeia = sessionId && typeof sessionId === 'object' ? sessionId.isMultiLEIA : false;
+    const normalizedSessionId = isMultiLeia ? sessionId.sessionId : sessionId;
+    const rawMessages = await redisClient.lRange(this.getConversationKey(normalizedSessionId, isMultiLeia), 0, -1);
 
     return rawMessages
       .map((rawMessage) => {
@@ -87,7 +94,7 @@ class BaseModel {
           return null;
         }
       })
-      .map((message) => (message ? this.normalizeConversationMessage(message.role, message.content) : null))
+      .map((message) => (message ? this.normalizeConversationMessage(message.role, message.content, message.leiaId) : null))
       .filter(Boolean);
   }
 
@@ -98,14 +105,14 @@ class BaseModel {
    * @param {string} content - Contenido del mensaje
    * @returns {Promise<void>}
    */
-  async appendMessage(sessionId, role, content) {
-    const message = this.normalizeConversationMessage(role, content);
+  async appendMessage(sessionId, role, content, leiaId = null, isMultiLeia = false) {
+    const message = this.normalizeConversationMessage(role, content, leiaId);
 
     if (!message || !Environment.isCacheEnabled(this.envVar, this.native)) {
       return;
     }
 
-    const key = this.getConversationKey(sessionId);
+    const key = this.getConversationKey(sessionId, isMultiLeia);
     await redisClient.rPush(key, JSON.stringify(message));
     await redisClient.expire(key, this.getConversationTtlSeconds());
   }
@@ -116,14 +123,14 @@ class BaseModel {
    * @param {string} systemInstruction - Instrucción de sistema
    * @returns {Promise<void>}
    */
-  async ensureSystemMessage(sessionId, systemInstruction) {
+  async ensureSystemMessage(sessionId, systemInstruction, isMultiLeia = false) {
     const normalizedSystemMessage = this.normalizeConversationMessage('system', systemInstruction);
 
     if (!normalizedSystemMessage || !Environment.isCacheEnabled(this.envVar, this.native)) {
       return;
     }
 
-    const key = this.getConversationKey(sessionId);
+    const key = this.getConversationKey(sessionId, isMultiLeia);
     const firstRawMessage = await redisClient.lIndex(key, 0);
 
     if (!firstRawMessage) {
@@ -170,9 +177,25 @@ class BaseModel {
    * @param {string} userMessage - Mensaje del usuario
    * @returns {Promise<Array>}
    */
-  async buildConversationForRequest(sessionId, systemInstruction, userMessage) {
-    await this.ensureSystemMessage(sessionId, systemInstruction);
-    await this.appendMessage(sessionId, 'user', userMessage);
+  async buildConversationForRequest(sessionId, systemInstruction, userMessage, options = {}) {
+    const isMultiLeia = Boolean(options.isMultiLeia);
+    if (isMultiLeia) {
+      await this.appendMessage(sessionId, 'user', userMessage, null, true);
+      const conversation = await this.getConversation({ sessionId, isMultiLEIA: true });
+      return [
+        {
+          role: 'system',
+          content: systemInstruction,
+        },
+        ...conversation.map(({ role, content, leiaId }) => ({
+          role,
+          content: role === 'assistant' && leiaId ? `[LEIA ${leiaId}]: ${content}` : content,
+        })),
+      ];
+    }
+
+    await this.ensureSystemMessage(sessionId, systemInstruction, isMultiLeia);
+    await this.appendMessage(sessionId, 'user', userMessage, null, isMultiLeia);
     return this.getConversation(sessionId);
   }
 
@@ -182,8 +205,14 @@ class BaseModel {
    * @param {string} assistantMessage - Mensaje del asistente
    * @returns {Promise<void>}
    */
-  async storeAssistantResponse(sessionId, assistantMessage) {
-    await this.appendMessage(sessionId, 'assistant', assistantMessage);
+  async storeAssistantResponse(sessionId, assistantMessage, options = {}) {
+    await this.appendMessage(
+      sessionId,
+      'assistant',
+      assistantMessage,
+      options.leiaId || null,
+      Boolean(options.isMultiLeia)
+    );
   }
 
   /**
@@ -197,6 +226,7 @@ class BaseModel {
     }
 
     await redisClient.del(this.getConversationKey(sessionId));
+    await redisClient.del(this.getConversationKey(sessionId, true));
   }
 
   // Methods implemented for all providers by default
@@ -320,7 +350,10 @@ class BaseModel {
     const systemInstruction = state.getSystemInstruction();
 
     try {
-      const conversationMessages = await this.buildConversationForRequest(sessionId, systemInstruction, message);
+      const isMultiLeia = sessionData.isMultiLEIA === true || sessionData.isMultiLEIA === 'true';
+      const conversationMessages = await this.buildConversationForRequest(sessionId, systemInstruction, message, {
+        isMultiLeia,
+      });
       const requestContext = {
         sessionId,
         message,
@@ -337,7 +370,10 @@ class BaseModel {
         throw Errors.baseModel.noTextContent(this.name);
       }
 
-      await this.storeAssistantResponse(sessionId, responseMessage);
+      await this.storeAssistantResponse(sessionId, responseMessage, {
+        leiaId: options.leiaId || null,
+        isMultiLeia,
+      });
 
       const updatedSessionData = await requestContext.state.buildSessionData(requestContext.sessionId);
 
