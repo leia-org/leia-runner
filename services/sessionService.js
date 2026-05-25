@@ -1,6 +1,7 @@
 const { redisClient } = require('../config/redis');
 const modelManager = require('../models/modelManager');
 const simpleOrchestrator = require('../models/orchestrators/simpleOrchestrator');
+const responsesOrchestrator = require('../models/orchestrators/responsesOrchestrator');
 
 class SessionService {
   constructor() {
@@ -180,12 +181,13 @@ class SessionService {
     if (leias.length === 0) {
       throw new Error(`Multi-LEIA session ${sessionId} has no LEIAs`);
     }
-
-    const selectedLeia = simpleOrchestrator.selectLeia(leias);
+    const model = modelManager.getModel(sessionData.modelName);
+    const conversation = await model.getConversation(sessionId);
+    const selectedLeia = await responsesOrchestrator.selectLeia(leias, conversation);
     if (!selectedLeia) {
       throw new Error(`Multi-LEIA session ${sessionId} could not select a LEIA`);
     }
-    const model = modelManager.getModel(sessionData.modelName);
+
     const selectedProviderState = sessionData.providerState || {};
     const modelSessionData = {
       ...sessionData,
