@@ -1,9 +1,9 @@
 const BaseOrchestrator = require('./baseOrchestrator');
 
-class SimpleOrchestrator extends BaseOrchestrator {
+class TurnOrchestrator extends BaseOrchestrator {
   constructor() {
     super();
-    this.name = 'simpleOrchestrator';
+    this.name = 'turnOrchestrator';
   }
 
   selectLeia(leias = [], nextIndex = 0) {
@@ -11,8 +11,9 @@ class SimpleOrchestrator extends BaseOrchestrator {
       return null;
     }
 
-    const normalizedIndex = Number.isInteger(nextIndex) && nextIndex >= 0
-      ? nextIndex % leias.length
+    const parsedIndex = Number.parseInt(nextIndex, 10);
+    const normalizedIndex = Number.isInteger(parsedIndex) && parsedIndex >= 0
+      ? parsedIndex % leias.length
       : 0;
 
     return {
@@ -23,4 +24,4 @@ class SimpleOrchestrator extends BaseOrchestrator {
   }
 }
 
-module.exports = new SimpleOrchestrator();
+module.exports = new TurnOrchestrator();

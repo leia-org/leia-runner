@@ -75,5 +75,15 @@ module.exports.sendMultiLeiaMessage = async function sendMultiLeiaMessage(req, r
 };
 
 function buildInstructionsFromLeia(leia) {
-  return leia.spec?.behaviour?.spec?.description || '';
+  const leiaId = leia.id ? String(leia.id) : 'unknown';
+  const behaviourDescription = leia.spec?.behaviour?.spec?.description || '';
+
+  return [
+    `You are LEIA ${leiaId}.`,
+    'Keep this identity and behavior consistently throughout the conversation.',
+    'You can see the shared conversation history, including what the user and other LEIAs have said.',
+    'Use that shared history as context, but answer only as your own LEIA identity.',
+    '',
+    behaviourDescription,
+  ].join('\n').trim();
 }

@@ -23,7 +23,23 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
   }
 
   async buildModelResponse(context) {
-    const { state, systemInstruction, message } = context;
+    const { sessionData, state, systemInstruction, message } = context;
+
+    if (sessionData?.isMultiLEIA === true || sessionData?.isMultiLEIA === 'true') {
+      const interaction = await this.createInteraction({
+        model: this.model,
+        input: this.buildMultiLeiaTranscriptInput(context.conversationMessages),
+        systemInstruction,
+      });
+
+      context.previousInteractionId = interaction.id || state.get('previousInteractionId');
+      state.update({
+        previousInteractionId: context.previousInteractionId,
+      });
+
+      return interaction;
+    }
+
     const previousInteractionId = state.get('previousInteractionId') || state.threadId;
 
     const interaction = await this.createInteraction({
@@ -39,6 +55,23 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     });
 
     return interaction;
+  }
+
+  buildMultiLeiaTranscriptInput(conversationMessages = []) {
+    const transcript = conversationMessages
+      .filter(({ role }) => role !== 'system')
+      .map(({ role, content }) => {
+        const speaker = role === 'assistant' ? 'assistant' : 'user';
+        return `${speaker}: ${content}`;
+      })
+      .join('\n\n');
+
+    return [
+      'Shared conversation transcript:',
+      transcript || '(No previous messages.)',
+      '',
+      'Respond now as your own LEIA identity.',
+    ].join('\n');
   }
 
   extractResponseMessage(response) {

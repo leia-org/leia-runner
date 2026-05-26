@@ -30,6 +30,27 @@ class OpenAIResponsesProvider extends BaseModel {
 
     async buildModelResponse(context) {
         const { sessionData, state, systemInstruction, message } = context;
+
+        if (sessionData?.isMultiLEIA === true || sessionData?.isMultiLEIA === 'true') {
+            const response = await this.getClient().responses.create({
+                model: this.model,
+                instructions: systemInstruction,
+                input: this.buildMultiLeiaTranscriptInput(context.conversationMessages),
+                store: false,
+            });
+
+            if (response?.error) {
+                throw Errors.openAI.responseError(response.error.message);
+            }
+
+            context.lastResponseId = response.id || state.get('lastResponseId');
+            state.update({
+                lastResponseId: context.lastResponseId,
+            });
+
+            return response;
+        }
+
         let conversationId = state.get('conversationId') || (state.threadId.startsWith('conv_') ? state.threadId : '');
 
         if (!conversationId) {
@@ -68,6 +89,28 @@ class OpenAIResponsesProvider extends BaseModel {
         });
 
         return response;
+    }
+
+    buildMultiLeiaTranscriptInput(conversationMessages = []) {
+        const transcript = conversationMessages
+            .filter(({ role }) => role !== 'system')
+            .map(({ role, content }) => {
+                const speaker = role === 'assistant' ? 'assistant' : 'user';
+                return `${speaker}: ${content}`;
+            })
+            .join('\n\n');
+
+        return [
+            {
+                role: 'user',
+                content: [
+                    'Shared conversation transcript:',
+                    transcript || '(No previous messages.)',
+                    '',
+                    'Respond now as your own LEIA identity.',
+                ].join('\n'),
+            },
+        ];
     }
 
     extractResponseMessage(response) {
