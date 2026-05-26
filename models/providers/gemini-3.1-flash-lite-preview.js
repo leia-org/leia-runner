@@ -1,6 +1,7 @@
 require('dotenv').config();
 const BaseModel = require('./baseModel');
 const Errors = require('../../utils/errors');
+const Prompts = require('../../utils/prompts');
 const { GoogleGenAI } = require('@google/genai');
 
 /**
@@ -14,6 +15,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     this.envVar = 'GEMINI';
     this.model = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite-preview';
     this.evaluationModel = process.env.GEMINI_EVALUATION_MODEL || this.model;
+    this.supportsPersistentMultiLeiaThread = true;
   }
 
   // Requerido por el baseModel
@@ -26,10 +28,12 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     const { sessionData, state, systemInstruction, message } = context;
 
     if (sessionData?.isMultiLEIA === true || sessionData?.isMultiLEIA === 'true') {
+      const previousInteractionId = state.get('previousInteractionId') || '';
       const interaction = await this.createInteraction({
         model: this.model,
-        input: this.buildMultiLeiaTranscriptInput(context.conversationMessages),
+        input: this.buildMultiLeiaTranscriptInput(context),
         systemInstruction,
+        previousInteractionId,
       });
 
       context.previousInteractionId = interaction.id || state.get('previousInteractionId');
@@ -57,21 +61,12 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     return interaction;
   }
 
-  buildMultiLeiaTranscriptInput(conversationMessages = []) {
-    const transcript = conversationMessages
-      .filter(({ role }) => role !== 'system')
-      .map(({ role, content }) => {
-        const speaker = role === 'assistant' ? 'assistant' : 'user';
-        return `${speaker}: ${content}`;
-      })
-      .join('\n\n');
+  buildMultiLeiaTranscriptInput(context) {
+    const participants = Array.isArray(context.participants)
+      ? context.participants.map(({ name }) => name).filter(Boolean).join(', ')
+      : '';
 
-    return [
-      'Shared conversation transcript:',
-      transcript || '(No previous messages.)',
-      '',
-      'Respond now as your own LEIA identity.',
-    ].join('\n');
+    return Prompts.multiLeiaTranscriptInput(context.conversationMessages, context.leiaName, participants);
   }
 
   extractResponseMessage(response) {

@@ -39,6 +39,14 @@ class SessionService {
       }
     }
 
+    if (normalizedSessionData.providerStateByLeia) {
+      try {
+        normalizedSessionData.providerStateByLeia = JSON.parse(normalizedSessionData.providerStateByLeia);
+      } catch (error) {
+        console.warn('No se pudo parsear providerStateByLeia, se usará el valor almacenado:', error.message);
+      }
+    }
+
     if (normalizedSessionData.leias) {
       try {
         normalizedSessionData.leias = JSON.parse(normalizedSessionData.leias);
@@ -120,6 +128,7 @@ class SessionService {
       modelName,
       threadId: '',
       providerState: {},
+      providerStateByLeia: {},
       isMultiLEIA: true,
       multiLeiaNextIndex: 0,
       leias,
@@ -189,13 +198,24 @@ class SessionService {
 
     const selectedLeia = selection.leia;
     const model = modelManager.getModel(sessionData.modelName);
-    const selectedProviderState = sessionData.providerState || {};
+    const participants = leias.map((leia) => ({
+      id: leia.leiaId,
+      name: leia.leiaName || leia.leiaId,
+    }));
+    const providerStateByLeia =
+      sessionData.providerStateByLeia && typeof sessionData.providerStateByLeia === 'object'
+        ? sessionData.providerStateByLeia
+        : {};
+    const selectedProviderState = providerStateByLeia[selectedLeia.leiaId] || {};
     const modelSessionData = {
       ...sessionData,
       providerState: {
         ...selectedProviderState,
         systemInstruction: selectedLeia.instructions,
       },
+      multiLeiaParticipants: participants,
+      multiLeiaCurrentName: selectedLeia.leiaName || selectedLeia.leiaId,
+      multiLeiaLastSeenMessageCount: selectedProviderState.multiLeiaSeenMessageCount || 0,
       isMultiLEIA: true,
     };
 
@@ -207,8 +227,15 @@ class SessionService {
     });
 
     if (response?.sessionData) {
+      const updatedProviderStateByLeia = {
+        ...providerStateByLeia,
+        [selectedLeia.leiaId]: response.sessionData.providerState || selectedProviderState,
+      };
+
       await this.updateSession(sessionId, {
-        ...response.sessionData,
+        threadId: sessionData.threadId || '',
+        providerState: sessionData.providerState || {},
+        providerStateByLeia: updatedProviderStateByLeia,
         isMultiLEIA: true,
         multiLeiaNextIndex: selection.nextIndex,
         leias,

@@ -1,4 +1,5 @@
 const sessionService = require('../services/sessionService');
+const prompts = require('../utils/prompts');
 
 module.exports.createMultiLeia = async function createMultiLeia(req, res) {
   try {
@@ -25,7 +26,8 @@ module.exports.createMultiLeia = async function createMultiLeia(req, res) {
       sessionId,
       leias.map((currentLeia) => ({
         leiaId: currentLeia.id,
-        instructions: buildInstructionsFromLeia(currentLeia),
+        leiaName: getLeiaName(currentLeia),
+        instructions: buildInstructionsFromLeia(currentLeia, leias),
         solution: currentLeia.spec?.problem?.spec?.solution || '',
         solutionFormat: currentLeia.spec?.problem?.spec?.solutionFormat || 'text',
         evaluationPrompt: currentLeia.spec?.problem?.spec?.evaluationPrompt || '',
@@ -74,16 +76,15 @@ module.exports.sendMultiLeiaMessage = async function sendMultiLeiaMessage(req, r
   }
 };
 
-function buildInstructionsFromLeia(leia) {
+function buildInstructionsFromLeia(leia, allLeias = []) {
   const leiaId = leia.id ? String(leia.id) : 'unknown';
+  const leiaName = getLeiaName(leia);
+  const participants = allLeias.map(getLeiaName).filter(Boolean).join(', ');
   const behaviourDescription = leia.spec?.behaviour?.spec?.description || '';
 
-  return [
-    `You are LEIA ${leiaId}.`,
-    'Keep this identity and behavior consistently throughout the conversation.',
-    'You can see the shared conversation history, including what the user and other LEIAs have said.',
-    'Use that shared history as context, but answer only as your own LEIA identity.',
-    '',
-    behaviourDescription,
-  ].join('\n').trim();
+  return prompts.multiLeiaSystemPrompt(leiaName, leiaId, participants, behaviourDescription);
+}
+
+function getLeiaName(leia) {
+  return leia.spec?.persona?.spec?.firstName || leia.spec?.persona?.spec?.fullName || null;
 }

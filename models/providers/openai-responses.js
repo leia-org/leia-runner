@@ -4,6 +4,7 @@ const z = require('zod');
 const { zodTextFormat } = require('openai/helpers/zod');
 const BaseModel = require('./baseModel');
 const Errors = require('../../utils/errors');
+const Prompts = require('../../utils/prompts');
 
 const EvaluationSchema = z.object({
     score: z.number().min(0).max(10),
@@ -20,6 +21,7 @@ class OpenAIResponsesProvider extends BaseModel {
         this.envVar = 'OPENAI';
         this.model = 'gpt-5.4-mini';
         this.evaluationModel = process.env.OPENAI_EVALUATION_MODEL || 'gpt-5.4-mini';
+        this.supportsPersistentMultiLeiaThread = true;
     }
 
     // Requerido por el BaseModel
@@ -32,19 +34,29 @@ class OpenAIResponsesProvider extends BaseModel {
         const { sessionData, state, systemInstruction, message } = context;
 
         if (sessionData?.isMultiLEIA === true || sessionData?.isMultiLEIA === 'true') {
+            let conversationId = state.get('conversationId') || '';
+
+            if (!conversationId) {
+                const conversation = await this.createConversation();
+                conversationId = conversation.id;
+            }
+
             const response = await this.getClient().responses.create({
                 model: this.model,
+                conversation: conversationId,
                 instructions: systemInstruction,
-                input: this.buildMultiLeiaTranscriptInput(context.conversationMessages),
-                store: false,
+                input: this.buildMultiLeiaTranscriptInput(context),
+                store: true,
             });
 
             if (response?.error) {
                 throw Errors.openAI.responseError(response.error.message);
             }
 
+            context.conversationId = conversationId;
             context.lastResponseId = response.id || state.get('lastResponseId');
             state.update({
+                conversationId,
                 lastResponseId: context.lastResponseId,
             });
 
@@ -91,24 +103,15 @@ class OpenAIResponsesProvider extends BaseModel {
         return response;
     }
 
-    buildMultiLeiaTranscriptInput(conversationMessages = []) {
-        const transcript = conversationMessages
-            .filter(({ role }) => role !== 'system')
-            .map(({ role, content }) => {
-                const speaker = role === 'assistant' ? 'assistant' : 'user';
-                return `${speaker}: ${content}`;
-            })
-            .join('\n\n');
+    buildMultiLeiaTranscriptInput(context) {
+        const participants = Array.isArray(context.participants)
+            ? context.participants.map(({ name }) => name).filter(Boolean).join(', ')
+            : '';
 
         return [
             {
                 role: 'user',
-                content: [
-                    'Shared conversation transcript:',
-                    transcript || '(No previous messages.)',
-                    '',
-                    'Respond now as your own LEIA identity.',
-                ].join('\n'),
+                content: Prompts.multiLeiaTranscriptInput(context.conversationMessages, context.leiaName, participants),
             },
         ];
     }

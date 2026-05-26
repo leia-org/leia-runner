@@ -13,6 +13,7 @@ class BaseModel {
     this.conversationPrefix = 'conversations:';
     this.multiConversationPrefix = 'conversations/multi:';
     this.defaultConversationTtlSeconds = 2629800;
+    this.supportsPersistentMultiLeiaThread = false;
   }
 
   // conversationStore methods implemented for all providers by default
@@ -96,6 +97,14 @@ class BaseModel {
       })
       .map((message) => (message ? this.normalizeConversationMessage(message.role, message.content, message.leiaId) : null))
       .filter(Boolean);
+  }
+
+  async getConversationLength(sessionId, isMultiLeia = false) {
+    if (!Environment.isCacheEnabled(this.envVar, this.native)) {
+      return 0;
+    }
+
+    return redisClient.lLen(this.getConversationKey(sessionId, isMultiLeia));
   }
 
   /**
@@ -182,14 +191,18 @@ class BaseModel {
     if (isMultiLeia) {
       await this.appendMessage(sessionId, 'user', userMessage, null, true);
       const conversation = await this.getConversation({ sessionId, isMultiLEIA: true });
+      const lastSeenMessageCount = this.supportsPersistentMultiLeiaThread
+        ? this.normalizeSeenMessageCount(options.lastSeenMessageCount, conversation.length)
+        : 0;
+      const unseenConversation = conversation.slice(lastSeenMessageCount);
       return [
         {
           role: 'system',
           content: systemInstruction,
         },
-        ...conversation.map(({ role, content, leiaId }) => ({
+        ...unseenConversation.map(({ role, content, leiaId }) => ({
           role,
-          content: role === 'assistant' && leiaId ? `[LEIA ${leiaId}]: ${content}` : content,
+          content: this.formatMultiLeiaTranscriptMessage(role, content, leiaId, options.leiaNamesById),
         })),
       ];
     }
@@ -197,6 +210,50 @@ class BaseModel {
     await this.ensureSystemMessage(sessionId, systemInstruction, isMultiLeia);
     await this.appendMessage(sessionId, 'user', userMessage, null, isMultiLeia);
     return this.getConversation(sessionId);
+  }
+
+  normalizeSeenMessageCount(lastSeenMessageCount, conversationLength) {
+    const parsedCount = Number.parseInt(lastSeenMessageCount, 10);
+
+    if (!Number.isInteger(parsedCount) || parsedCount < 0) {
+      return 0;
+    }
+
+    return Math.min(parsedCount, conversationLength);
+  }
+
+  formatMultiLeiaTranscriptMessage(role, content, leiaId = null, leiaNamesById = {}) {
+    const escapedContent = this.escapeXmlText(content);
+
+    if (role === 'user') {
+      return `<message speaker="User" role="user">${escapedContent}</message>`;
+    }
+
+    if (role === 'assistant' && leiaId) {
+      const speakerName = leiaNamesById[leiaId] || leiaId;
+      return `<message speaker="${this.escapeXmlAttribute(speakerName)}" role="leia">${escapedContent}</message>`;
+    }
+
+    if (role === 'assistant') {
+      return `<message speaker="Unknown LEIA" role="leia">${escapedContent}</message>`;
+    }
+
+    return content;
+  }
+
+  escapeXmlAttribute(value) {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  escapeXmlText(value) {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
 
   /**
@@ -351,8 +408,19 @@ class BaseModel {
 
     try {
       const isMultiLeia = sessionData.isMultiLEIA === true || sessionData.isMultiLEIA === 'true';
+      const leiaNamesById = Array.isArray(sessionData.multiLeiaParticipants)
+        ? sessionData.multiLeiaParticipants.reduce((names, participant) => {
+            if (participant?.id && participant?.name) {
+              names[String(participant.id)] = String(participant.name);
+            }
+
+            return names;
+          }, {})
+        : {};
       const conversationMessages = await this.buildConversationForRequest(sessionId, systemInstruction, message, {
         isMultiLeia,
+        lastSeenMessageCount: sessionData.multiLeiaLastSeenMessageCount,
+        leiaNamesById,
       });
       const requestContext = {
         sessionId,
@@ -361,6 +429,9 @@ class BaseModel {
         state,
         systemInstruction,
         conversationMessages,
+        leiaId: options.leiaId || null,
+        leiaName: sessionData.multiLeiaCurrentName || options.leiaId || null,
+        participants: sessionData.multiLeiaParticipants || [],
       };
 
       const response = await this.buildModelResponse(requestContext);
@@ -376,6 +447,13 @@ class BaseModel {
       });
 
       const updatedSessionData = await requestContext.state.buildSessionData(requestContext.sessionId);
+
+      if (isMultiLeia) {
+        updatedSessionData.providerState = {
+          ...updatedSessionData.providerState,
+          multiLeiaSeenMessageCount: await this.getConversationLength(sessionId, true),
+        };
+      }
 
       return {
         message: responseMessage,
