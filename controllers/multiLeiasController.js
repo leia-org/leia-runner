@@ -32,7 +32,8 @@ module.exports.createMultiLeia = async function createMultiLeia(req, res) {
         solutionFormat: currentLeia.spec?.problem?.spec?.solutionFormat || 'text',
         evaluationPrompt: currentLeia.spec?.problem?.spec?.evaluationPrompt || '',
       })),
-      modelName
+      modelName,
+      runnerConfiguration.orchestrator
     );
 
     await sessionService.storeLeiaMeta(sessionId, {

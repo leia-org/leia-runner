@@ -1,6 +1,6 @@
 const { redisClient } = require('../config/redis');
 const modelManager = require('../models/modelManager');
-const turnOrchestrator = require('../models/orchestrators/turnOrchestrator');
+const orchestratorManager = require('../models/orchestrators/orchestratorManager');
 
 class SessionService {
   constructor() {
@@ -118,7 +118,7 @@ class SessionService {
     }
   }
 
-  async createMultiSession(sessionId, leias, modelName = 'default') {
+  async createMultiSession(sessionId, leias, modelName = 'default', orchestratorName = 'turn') {
     if (!Array.isArray(leias) || leias.length === 0) {
       throw new Error('At least one LEIA is required for a multi-LEIA session');
     }
@@ -130,6 +130,7 @@ class SessionService {
       providerState: {},
       providerStateByLeia: {},
       isMultiLEIA: true,
+      orchestratorName,
       multiLeiaNextIndex: 0,
       leias,
       createdAt: Date.now()
@@ -191,7 +192,8 @@ class SessionService {
       throw new Error(`Multi-LEIA session ${sessionId} has no LEIAs`);
     }
 
-    const selection = turnOrchestrator.selectLeia(leias, sessionData.multiLeiaNextIndex);
+    const orchestrator = orchestratorManager.getOrchestrator(sessionData.orchestratorName);
+    const selection = orchestrator.selectLeia(leias, sessionData.multiLeiaNextIndex);
     if (!selection?.leia) {
       throw new Error(`Multi-LEIA session ${sessionId} could not select a LEIA`);
     }
@@ -237,6 +239,7 @@ class SessionService {
         providerState: sessionData.providerState || {},
         providerStateByLeia: updatedProviderStateByLeia,
         isMultiLEIA: true,
+        orchestratorName: sessionData.orchestratorName || orchestrator.name,
         multiLeiaNextIndex: selection.nextIndex,
         leias,
       });
