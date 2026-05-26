@@ -106,30 +106,40 @@ class SessionService {
     }
   }
 
-  async sendMessage(sessionId, message) {
+  async sendMessage(sessionId, message, options = {}) {
     try {
       // Get the session
       const sessionData = await this.getSession(sessionId);
-      
+
       if (!sessionData) {
         return null; // Return null instead of throwing an error
       }
-      
+
+      // Honor the activity-level gate set at createLeia. If the LEIA was
+      // not configured with widgets/toolfunctions, tools coming in on the
+      // request are ignored (and so are toolResults, since they wouldn't
+      // belong to any prior tool call).
+      const leiaMeta = await this.getLeiaMeta(sessionId);
+      const allowTools = leiaMeta?.toolFunctionsEnabled === 'true';
+
       // Get the model for this session
       const model = modelManager.getModel(sessionData.modelName);
-      
+
       // Send the message through the model
       const response = await model.sendMessage({
         sessionId,
         message,
-        sessionData
+        sessionData,
+        allowTools,
+        tools: allowTools ? options.tools : undefined,
+        toolResults: allowTools ? options.toolResults : undefined,
       });
 
       if (response?.sessionData) {
         await this.updateSession(sessionId, response.sessionData);
         delete response.sessionData;
       }
-      
+
       return response;
     } catch (error) {
       console.error(`Error sending message in session ${sessionId}:`, error);
