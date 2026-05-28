@@ -68,9 +68,29 @@ module.exports.sendMultiLeiaMessage = async function sendMultiLeiaMessage(req, r
       return res.status(404).send({ error: `Session with ID: ${sessionId} not found` });
     }
 
-    const response = await sessionService.sendMultiMessage(sessionId, message, sessionExists);
-
-    res.status(200).send(response);
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+    try {
+    //for await (const msg of sessionService.sendMultiMessage(sessionId, message, sessionExists)) {
+      response = await sessionService.sendMultiMessage(sessionId, message, sessionExists);
+      const leiaMessage = response.message;
+      const leiaId = response.leiaId;
+      const messageData = JSON.stringify({ message: leiaMessage, leiaId });
+      res.write(`data: ${messageData}\n\n`);
+    
+    res.write(`event: done\ndata: {}\n\n`);
+    res.end();
+    } catch (streamError) {
+      console.error(`Error during multi-LEIA message stream (${sessionId}):`, streamError);
+      res.write(`event: error\ndata: ${JSON.stringify({ error: 'Error during multi-LEIA message stream' })}\n\n`);
+      res.end();
+    }
+    req.on('close', () => {
+    res.end();
+    });
   } catch (error) {
     console.error(`Error sending message to multi-LEIA (${req.params.sessionId}):`, error);
     res.status(500).send({ error: 'Internal error sending message to multi-LEIA' });
