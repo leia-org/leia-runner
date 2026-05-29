@@ -3,6 +3,7 @@ const BaseModel = require('./baseModel');
 const Errors = require('../../utils/errors');
 const ProviderState = require('../providerState');
 const { GoogleGenAI } = require('@google/genai');
+const ApiKeyProvider = require('../constants');
 
 /**
  * Proveedor de modelo basado en Gemini Interactions API.
@@ -12,13 +13,13 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
   constructor() {
     super();
     this.name = 'gemini-3.1-flash-lite-preview';
-    this.apiKeyEnvVar = 'GEMINI_API_KEY';
     this.model = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite-preview';
     this.evaluationModel = process.env.GEMINI_EVALUATION_MODEL || this.model;
+    this.apiKeyProvider = ApiKeyProvider.GEMINI;
   }
 
   // Requerido para el baseModel
-  
+
   createClient(apiKey) {
     return new GoogleGenAI({ apiKey });
   }
@@ -79,7 +80,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     return JSON.parse(this.sanitizeJsonResponse(responseText));
   }
 
-  // Métodos auxiliares 
+  // Métodos auxiliares
 
   getEvaluationResponseFormat() {
     return {
@@ -145,4 +146,4 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
   }
 }
 
-module.exports = new Gemini31FlashLitePreviewProvider();
+module.exports = Gemini31FlashLitePreviewProvider;

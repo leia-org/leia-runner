@@ -25,10 +25,9 @@ module.exports.createLeia = async function createLeia(req, res) {
     const instructions = buildInstructionsFromLeia(leia);
 
     // Determine which model provider to use
-    const modelName = runnerConfiguration.provider || 'default';
-
+    const { provider, modelName, apiKeyId, apiKeyRequesterId } = runnerConfiguration; 
     // Create session with the specified provider
-    const sessionData = await sessionService.createSession(sessionId, instructions, modelName);
+    const sessionData = await sessionService.createSession(sessionId, instructions,modelName, provider, apiKeyId, apiKeyRequesterId);
 
     // Store leia metadata in Redis for future reference
     await sessionService.storeLeiaMeta(sessionId, {
@@ -40,7 +39,7 @@ module.exports.createLeia = async function createLeia(req, res) {
 
     res.status(201).send({
       sessionId,
-      modelName,
+      provider: provider,
       created: true
     });
   } catch (error) {
@@ -82,4 +81,4 @@ module.exports.sendLeiaMessage = async function sendLeiaMessage(req, res) {
 function buildInstructionsFromLeia(leia) {
   let instructions = leia.spec?.behaviour?.spec?.description || '';
   return instructions;
-} 
+}
