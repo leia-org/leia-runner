@@ -30,8 +30,8 @@ async function initializeServer() {
     console.log('Connected to Redis');
 
     // Inicializar modelos
-    await modelManager.initializeModels();
-    console.log('Models initialized');
+    await modelManager.initializeProviderModules();
+    console.log('Provider modulesinitialized');
 
     // Sincronizar modelos en Redis
     await modelSyncService.syncModels();

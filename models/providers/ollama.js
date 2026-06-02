@@ -3,12 +3,14 @@ const BaseModel = require('./baseModel');
 const Errors = require('../../utils/errors');
 const ProviderState = require('../providerState');
 const { ConversationStore } = require('../conversationStore');
+const ApiKeyProvider = require('../constants');
 
 class OllamaProvider extends BaseModel {
   constructor() {
     super();
     this.name = 'ollama';
     this.model = process.env.OLLAMA_MODEL || 'llama3.1:8b';
+    this.apiKeyProvider = ApiKeyProvider.OLLAMA;
     this.evaluationModel = process.env.OLLAMA_EVALUATION_MODEL || this.model;
     this.baseUrl = (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/+$/, '');
     this.conversationStore = new ConversationStore({
@@ -179,4 +181,4 @@ class OllamaProvider extends BaseModel {
   }
 }
 
-module.exports = new OllamaProvider();
+module.exports = OllamaProvider;

@@ -5,18 +5,25 @@ const ProviderState = require('../providerState');
 class BaseModel {
   constructor() {
     this.name = 'base';
-    this.apiKeyEnvVar = '';
     this._client = null;
+    this.apiKeyProvider = null;
+    this.apiKey = null;
   }
 
   // Methods implemented for all providers by default
-
+  setBaseURL(url) {
+    this.baseUrl = url.replace(/\/+$/, '');
+  }
+  setApiKey(apiKey) {
+    this.apiKey = apiKey;
+  }
   /**
    * Obtiene el API key del proveedor desde la variable de entorno.
    * @returns {string|undefined}
    */
   getApiKey() {
-    return process.env[this.apiKeyEnvVar];
+    // Se podria llamar aqui al servicio de obtener la apikey con el Desginer intern tooken
+    return  this.apiKey;
   }
 
   /**
@@ -24,19 +31,27 @@ class BaseModel {
    * @returns {string}
    */
   ensureApiKey() {
-    if (!this.apiKeyEnvVar) {
-      throw new Error('apiKeyEnvVar is not configured for this provider');
-    }
-
     const apiKey = this.getApiKey();
 
     if (!apiKey) {
-      throw new Error(`${this.apiKeyEnvVar} is not configured`);
+      throw new Error('API key is not configured');
     }
 
     return apiKey;
   }
 
+  /**
+   * Obtiene el tipo de API key del proveedor.
+   * @returns {string}
+   * @throws {Error} Si el apiKeyProvider no está configurado en la subclase
+   */
+  getApiKeyProvider() {
+    if (!this.apiKeyProvider) {
+      throw new Error('apiKeyProvider is not configured for this provider');
+    }
+
+    return this.apiKeyProvider;
+  }
    /**
    * Obtiene el cliente del proveedor (lazy initialization).
    * @returns {Object} Cliente del proveedor
@@ -58,7 +73,7 @@ class BaseModel {
    */
   getProviderState(sessionData = {}) {
     const state = new ProviderState(sessionData);
-    
+
     return {
       threadId: state.threadId,
       systemInstruction: state.getSystemInstruction(),
@@ -79,7 +94,7 @@ class BaseModel {
     }
 
     const threadId = await this.setThreadId();
-    
+
     return {
       threadId,
       providerState: {
@@ -132,14 +147,14 @@ class BaseModel {
 
   /**
    * Define el threadId para la sesión. Este método debe ser implementado por cada proveedor para determinar cómo manejar el contexto de la conversación.
-   * @returns {string} El threadId a usar para la sesión, o un string vacío si el proveedor no utiliza threadId. 
+   * @returns {string} El threadId a usar para la sesión, o un string vacío si el proveedor no utiliza threadId.
    */
   async setThreadId() {
     return '';
   }
 
   /**
-   * Genera la respuesta de evaluación a partir de la respuesta cruda del modelo. 
+   * Genera la respuesta de evaluación a partir de la respuesta cruda del modelo.
    * Este método debe ser implementado por cada proveedor para definir cómo se procesa la respuesta del modelo para obtener la evaluación estructurada.
    * @returns {Object} La evaluación estructurada a partir de la respuesta del modelo
    * @throws {Error} Si el método no es implementado por la subclase
@@ -149,4 +164,4 @@ class BaseModel {
   }
 }
 
-module.exports = BaseModel; 
+module.exports = BaseModel;

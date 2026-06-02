@@ -2,12 +2,17 @@ import { describe, expect, beforeAll, afterAll, test } from 'vitest';
 import { z } from 'zod';
 import 'dotenv/config';
 import structuredGenerationService from '../services/structuredGenerationService';
-import openaiResponsesProvider from '../models/providers/openai-responses';
-import geminiProvider from '../models/providers/gemini-3.1-flash-lite-preview';
+import OpenAIResponsesProvider from '../models/providers/openai-responses';
+import GeminiProvider from '../models/providers/gemini-3.1-flash-lite-preview';
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite-preview';
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+
+const openaiResponsesProvider = new OpenAIResponsesProvider();
+const geminiProvider = new GeminiProvider();
 
 const MiniEvaluationSchema = z.object({
   score: z.number().min(0).max(10),
@@ -92,6 +97,12 @@ async function runWithSchemaRetry(action, { maxAttempts = 3 } = {}) {
 //antes de todos los tests, guardamos el valor original de AI_PROVIDER para restaurarlo después
 beforeAll(() => {
   originalProvider = process.env.AI_PROVIDER;
+  if (OPENAI_API_KEY) {
+    openaiResponsesProvider.setApiKey(OPENAI_API_KEY);
+  }
+  if (GEMINI_API_KEY) {
+    geminiProvider.setApiKey(GEMINI_API_KEY);
+  }
 });
 //después de todos los tests, restauramos el valor original de AI_PROVIDER para no afectar otras pruebas o el entorno
 afterAll(() => {
