@@ -31,17 +31,24 @@ module.exports.createLeia = async function createLeia(req, res) {
     const sessionData = await sessionService.createSession(sessionId, instructions, modelName);
 
     // Activity-level toolfunctions gate. Tools are honored only when:
-    //   - the LEIA declares at least one widget in runnerConfiguration, AND
+    //   - the activity declares at least one widget, AND
     //   - the active runner provider implements function tools — which
     //     in this runner is `openai-responses` only (Gemini text /
     //     Ollama ignore the tools array).
     // luke voice mode goes through a different stack (luke-server) and
     // is not gated here.
-    const lukeWidgets = Array.isArray(runnerConfiguration?.lukeConfig?.widgets)
-      ? runnerConfiguration.lukeConfig.widgets
-      : [];
+    //
+    // Widgets now live in the problem definition (authored in the designer)
+    // and ride here inside leia.spec.problem.spec.widgets. We fall back to the
+    // legacy runnerConfiguration.lukeConfig.widgets for LEIAs configured
+    // before the migration (dual-read).
+    const problemWidgets = leia?.spec?.problem?.spec?.widgets;
+    const legacyWidgets = runnerConfiguration?.lukeConfig?.widgets;
+    const widgets = Array.isArray(problemWidgets) && problemWidgets.length > 0
+      ? problemWidgets
+      : (Array.isArray(legacyWidgets) ? legacyWidgets : []);
     const toolCapableProvider = runnerConfiguration?.provider === 'openai-responses';
-    const toolFunctionsEnabled = lukeWidgets.length > 0 && toolCapableProvider;
+    const toolFunctionsEnabled = widgets.length > 0 && toolCapableProvider;
 
     // Store leia metadata in Redis for future reference
     await sessionService.storeLeiaMeta(sessionId, {
