@@ -29,12 +29,33 @@ module.exports.createLeia = async function createLeia(req, res) {
     // Create session with the specified provider
     const sessionData = await sessionService.createSession(sessionId, instructions,modelName, provider, apiKeyId, apiKeyRequesterId);
 
+    // Activity-level toolfunctions gate. Tools are honored only when:
+    //   - the activity declares at least one widget, AND
+    //   - the active runner provider implements function tools — which
+    //     in this runner is `openai-responses` only (Gemini text /
+    //     Ollama ignore the tools array).
+    // luke voice mode goes through a different stack (luke-server) and
+    // is not gated here.
+    //
+    // Widgets now live in the problem definition (authored in the designer)
+    // and ride here inside leia.spec.problem.spec.widgets. We fall back to the
+    // legacy runnerConfiguration.lukeConfig.widgets for LEIAs configured
+    // before the migration (dual-read).
+    const problemWidgets = leia?.spec?.problem?.spec?.widgets;
+    const legacyWidgets = runnerConfiguration?.lukeConfig?.widgets;
+    const widgets = Array.isArray(problemWidgets) && problemWidgets.length > 0
+      ? problemWidgets
+      : (Array.isArray(legacyWidgets) ? legacyWidgets : []);
+    const toolCapableProvider = runnerConfiguration?.provider === 'openai-responses';
+    const toolFunctionsEnabled = widgets.length > 0 && toolCapableProvider;
+
     // Store leia metadata in Redis for future reference
     await sessionService.storeLeiaMeta(sessionId, {
       leiaId: leia.id || sessionId,
       solution: leia.spec?.problem?.spec?.solution || '',
       solutionFormat: leia.spec?.problem?.spec?.solutionFormat || 'text',
-      evaluationPrompt: leia.spec?.problem?.spec?.evaluationPrompt || ''
+      evaluationPrompt: leia.spec?.problem?.spec?.evaluationPrompt || '',
+      toolFunctionsEnabled: toolFunctionsEnabled ? 'true' : 'false',
     });
 
     res.status(201).send({
@@ -51,10 +72,11 @@ module.exports.createLeia = async function createLeia(req, res) {
 module.exports.sendLeiaMessage = async function sendLeiaMessage(req, res) {
   try {
     const sessionId = req.params.sessionId;
-    const { message } = req.body;
+    const { message, tools, toolResults } = req.body;
 
-    if (!sessionId || !message) {
-      return res.status(400).send({ error: 'SessionId and message are required' });
+    const hasToolResults = Array.isArray(toolResults) && toolResults.length > 0;
+    if (!sessionId || (!message && !hasToolResults)) {
+      return res.status(400).send({ error: 'SessionId and message (or toolResults) are required' });
     }
 
     // Check if session exists
@@ -64,7 +86,7 @@ module.exports.sendLeiaMessage = async function sendLeiaMessage(req, res) {
     }
 
     // Send message through the session service
-    const response = await sessionService.sendMessage(sessionId, message);
+    const response = await sessionService.sendMessage(sessionId, message, { tools, toolResults });
 
     res.status(200).send(response);
   } catch (error) {
