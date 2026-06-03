@@ -7,7 +7,12 @@ const cacheController = require('../controllers/cacheController');
 const transcriptionController = require('../controllers/transcriptionController');
 const problemGeneratorController = require('../controllers/problemGeneratorController');
 const behaviourGeneratorController = require('../controllers/behaviourGeneratorController');
+const problemChatController = require('../controllers/problemChatController');
+const multer = require('multer');
 const { bearerAuth } = require('../utils/auth');
+
+// In-memory PDF uploads for the problem-chat assistant (forwarded to OpenAI).
+const uploadPdf = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 // Aplicar middleware de autenticación a todas las rutas
 router.use(bearerAuth);
@@ -33,5 +38,10 @@ router.post('/transcriptions/generate', transcriptionController.generateTranscri
 // Endpoint para generación de problemas con IA
 router.post('/problems/generate', problemGeneratorController.generateProblem);
 router.post('/behaviours/generate', behaviourGeneratorController.generateBehaviour);
+
+// Problem-chat assistant (design-time): attach PDFs, chat; tools are executed in the FE.
+router.post('/problems/chat/session', problemChatController.openProblemChat);
+router.post('/problems/chat/:chatId/files', uploadPdf.single('file'), problemChatController.uploadProblemChatFile);
+router.post('/problems/chat/:chatId/messages', problemChatController.sendProblemChatMessage);
 
 module.exports = router;

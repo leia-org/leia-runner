@@ -21,6 +21,10 @@ services:
       - REDIS_URL=redis://redis-runner:6379
       - DEFAULT_MODEL=${DEFAULT_MODEL}
       - RUNNER_KEY=${RUNNER_KEY}
+      - INTERN_TOKEN=${INTERN_TOKEN}
+      - VITE_AUTH_SERVICE_BACKEND=${VITE_AUTH_SERVICE_BACKEND}
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     depends_on:
       - redis-runner
     ports:
