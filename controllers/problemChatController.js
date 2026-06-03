@@ -43,12 +43,12 @@ const uploadProblemChatFile = async (req, res) => {
 const sendProblemChatMessage = async (req, res) => {
   try {
     const { chatId } = req.params;
-    const { message, tools, toolResults } = req.body;
+    const { message, tools, toolResults, fileIds } = req.body;
     const hasToolResults = Array.isArray(toolResults) && toolResults.length > 0;
     if ((typeof message !== 'string' || message.length === 0) && !hasToolResults) {
       return res.status(400).json({ error: 'A message or toolResults are required' });
     }
-    const result = await problemChatService.sendMessage(chatId, { message, tools, toolResults });
+    const result = await problemChatService.sendMessage(chatId, { message, tools, toolResults, fileIds });
     res.status(200).json(result);
   } catch (error) {
     console.error('Error in problem-chat message:', error);

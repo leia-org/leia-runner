@@ -112,13 +112,23 @@ class ProblemChatService {
     return { fileId: uploaded.id, filename: filename || 'document.pdf', bytes: buffer.length };
   }
 
-  async sendMessage(chatId, { message, tools, toolResults }) {
+  async sendMessage(chatId, { message, tools, toolResults, fileIds }) {
     const session = await this._get(chatId);
     if (!session) {
       const error = new Error('Problem-chat session not found');
       error.statusCode = 404;
       throw error;
     }
+
+    // Merge any file ids the client reports (robust against a session being
+    // re-opened between upload and message). Track which ones we've already
+    // sent so each PDF is attached exactly once across the conversation.
+    if (Array.isArray(fileIds) && fileIds.length > 0) {
+      const merged = new Set(Array.isArray(session.fileIds) ? session.fileIds : []);
+      for (const id of fileIds) if (typeof id === 'string') merged.add(id);
+      session.fileIds = Array.from(merged);
+    }
+    if (!Array.isArray(session.sentFileIds)) session.sentFileIds = [];
 
     const client = await this._client(session.runnerConfiguration);
     const model = session.runnerConfiguration?.modelName || process.env.OPENAI_MODEL || 'gpt-5.4-mini';
@@ -134,15 +144,15 @@ class ProblemChatService {
       }));
     } else {
       const content = [];
-      // Attach uploaded PDFs only on the FIRST turn; later turns inherit them
-      // through previous_response_id.
-      if (!session.responseId && Array.isArray(session.fileIds)) {
-        for (const fileId of session.fileIds) {
-          content.push({ type: 'input_file', file_id: fileId });
-        }
+      // Attach any uploaded PDFs not yet sent in this conversation (each once).
+      // Later turns inherit them via previous_response_id.
+      const unsent = (session.fileIds || []).filter((id) => !session.sentFileIds.includes(id));
+      for (const fileId of unsent) {
+        content.push({ type: 'input_file', file_id: fileId });
       }
       content.push({ type: 'input_text', text: message || '' });
       input = [{ role: 'user', content }];
+      session.sentFileIds = [...session.sentFileIds, ...unsent];
     }
 
     const payload = {
