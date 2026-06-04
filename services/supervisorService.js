@@ -78,12 +78,28 @@ function buildSystemPrompt(config = {}) {
   lines.push(
     '',
     'Only report what is supported by the transcript. Do not invent. Never reveal the activity solution. Write `note`, `category` and `nudge` in the same language the student is using.',
+    'Do not return a flag for a student quote or behaviour that is already listed in EXISTING FLAGS. If the same behaviour continues, only flag new student evidence that is not already covered by a previous flag.',
   );
 
   return lines.join('\n');
 }
 
-function buildUserPrompt(transcript = []) {
+function buildExistingFlagsPrompt(existingFlags = []) {
+  const rendered = existingFlags
+    .filter((f) => f && (typeof f.note === 'string' || typeof f.quote === 'string'))
+    .map((f, idx) => {
+      const category = typeof f.category === 'string' && f.category.trim() ? f.category.trim() : 'observation';
+      const severity = ['low', 'medium', 'high'].includes(f.severity) ? f.severity : 'low';
+      const note = typeof f.note === 'string' && f.note.trim() ? f.note.trim() : '';
+      const quote = typeof f.quote === 'string' && f.quote.trim() ? ` Quote: "${f.quote.trim()}"` : '';
+      return `${idx + 1}. ${category} · ${severity}${note ? ` — ${note}` : ''}${quote}`;
+    })
+    .join('\n');
+
+  return rendered || '(none)';
+}
+
+function buildUserPrompt(transcript = [], existingFlags = []) {
   const rendered = transcript
     .filter((t) => t && typeof t.text === 'string' && t.text.trim())
     .map((t) => {
@@ -93,7 +109,11 @@ function buildUserPrompt(transcript = []) {
     .join('\n');
 
   return [
-    'Here is the most recent portion of the activity transcript. Analyse the STUDENT turns (LEIA turns are context only) and return your observations.',
+    'Here is the most recent portion of the activity transcript plus the flags already reported for this session. Analyse the STUDENT turns (LEIA turns are context only) and return only new observations not already covered.',
+    '',
+    '--- EXISTING FLAGS ---',
+    buildExistingFlagsPrompt(existingFlags),
+    '--- END EXISTING FLAGS ---',
     '',
     '--- TRANSCRIPT ---',
     rendered || '(empty)',
@@ -114,9 +134,10 @@ class SupervisorService {
    * @param {object} params
    * @param {object} params.runnerConfiguration - { apiKeyId, apiKeyRequesterId, modelName }
    * @param {Array<{role:string,text:string}>} params.transcript
+   * @param {Array<{category:string,severity:string,note:string,quote:string|null}>} params.existingFlags
    * @param {object} params.config - supervisorConfig authored in the designer
    */
-  async observe({ runnerConfiguration, transcript, config }) {
+  async observe({ runnerConfiguration, transcript, existingFlags, config }) {
     const supervisorConfig = config || {};
     const client = await this._client(runnerConfiguration);
     // The supervisor always runs on OpenAI, so the model must be an OpenAI model.
@@ -128,7 +149,7 @@ class SupervisorService {
       model,
       input: [
         { role: 'system', content: buildSystemPrompt(supervisorConfig) },
-        { role: 'user', content: buildUserPrompt(transcript) },
+        { role: 'user', content: buildUserPrompt(transcript, existingFlags) },
       ],
       text: {
         format: zodTextFormat(SupervisorSchema, 'supervisor_observation'),
