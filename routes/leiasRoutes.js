@@ -8,6 +8,7 @@ const transcriptionController = require('../controllers/transcriptionController'
 const problemGeneratorController = require('../controllers/problemGeneratorController');
 const behaviourGeneratorController = require('../controllers/behaviourGeneratorController');
 const problemChatController = require('../controllers/problemChatController');
+const supervisorController = require('../controllers/supervisorController');
 const multer = require('multer');
 const { bearerAuth } = require('../utils/auth');
 
@@ -43,5 +44,9 @@ router.post('/behaviours/generate', behaviourGeneratorController.generateBehavio
 router.post('/problems/chat/session', problemChatController.openProblemChat);
 router.post('/problems/chat/:chatId/files', uploadPdf.single('file'), problemChatController.uploadProblemChatFile);
 router.post('/problems/chat/:chatId/messages', problemChatController.sendProblemChatMessage);
+
+// Background supervisor (stateless): observe an activity transcript window and
+// return flags (+ optional student nudge). Called fire-and-forget by the workbench.
+router.post('/supervisor', supervisorController.observe);
 
 module.exports = router;
