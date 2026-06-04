@@ -1,4 +1,4 @@
-const avatarService = require("../services/avatarService");
+const avatarService = require("../services/avatarGenerationService");
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
