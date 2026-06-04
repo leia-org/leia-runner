@@ -8,6 +8,7 @@ const transcriptionController = require('../controllers/transcriptionController'
 const problemGeneratorController = require('../controllers/problemGeneratorController');
 const behaviourGeneratorController = require('../controllers/behaviourGeneratorController');
 const problemChatController = require('../controllers/problemChatController');
+const avatarController = require('../controllers/avatarController');
 const multer = require('multer');
 const { bearerAuth } = require('../utils/auth');
 
@@ -38,6 +39,11 @@ router.post('/transcriptions/generate', transcriptionController.generateTranscri
 // Endpoint para generación de problemas con IA
 router.post('/problems/generate', problemGeneratorController.generateProblem);
 router.post('/behaviours/generate', behaviourGeneratorController.generateBehaviour);
+
+// Endpoints para generación de avatares con IA
+router.post('/avatars/personas/generate', avatarController.generatePersonaAvatar);
+router.post('/avatars/problems/generate', avatarController.generateProblemAvatar);
+router.post('/avatars/leias/generate', avatarController.generateLeiaAvatar);
 
 // Problem-chat assistant (design-time): attach PDFs, chat; tools are executed in the FE.
 router.post('/problems/chat/session', problemChatController.openProblemChat);
