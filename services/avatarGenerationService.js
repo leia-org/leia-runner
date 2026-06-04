@@ -2,7 +2,8 @@ const { GoogleGenAI } = require("@google/genai");
 const prompts = require("../utils/prompts");
 const sharp = require("sharp");
 
-const MAX_AVATAR_BYTES = 4 * 1024;
+const avatarKbytes = Number(process.env.AVATAR_KBYTES ?? 4);
+const MAX_AVATAR_BYTES = avatarKbytes * 1024;
 const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image";
 
 const AVATAR_PROMPTS = {
