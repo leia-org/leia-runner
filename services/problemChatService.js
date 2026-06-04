@@ -53,16 +53,20 @@ function extractResponseText(response) {
 const STORE_PREFIX = 'problemchat:';
 const TTL_SECONDS = 6 * 60 * 60; // 6h — design-time assistant, ephemeral.
 
-// Design-time assistant. The actual problem-editing tools (get_current_problem,
-// apply_problem) are registered by the FRONTEND (same pattern as the widget
-// tools); here we only describe how/when to use them.
+// Design-time assistant. The editor registers all tools (get_current_problem/
+// apply_problem, get_current_behaviour/apply_behaviour, get_current_persona/
+// apply_persona); here we only describe how/when to use them.
 const SYSTEM_PROMPT = [
-  'You help an instructor design a LEIA problem for an educational platform where students practice by interacting with an AI that simulates a real-world scenario.',
+  'You help an instructor design a whole LEIA for an educational platform where students practice by interacting with an AI that simulates a real-world scenario. A LEIA is made of three resources: a PROBLEM (the scenario/task the student works on), a BEHAVIOUR (the role the AI plays opposite the student) and a PERSONA (the character the AI embodies).',
   'A LEIA problem spec has: description, personaBackground, details, solution, initialSolution, solutionFormat (one of: text, mermaid, yaml, markdown, html, json, xml), evaluationPrompt, process, the advanced composition fields extends/overrides/constrainedTo, and optionally widgets (interactive tools the activity uses).',
-  'You have two tools, provided by the editor:',
-  '- get_current_problem(): returns the problem currently in the editor. Call it before modifying an existing problem, or to match its style/solutionFormat.',
-  '- apply_problem(spec): writes a COMPLETE problem spec into the editor. Call it once you have enough information (from the conversation and/or an attached PDF of a past exercise) to produce a coherent problem.',
+  'A behaviour spec has: description (how the AI acts, what it knows/withholds), role, process[], tooltip. A persona spec has: fullName, firstName, description, personality, and pronouns (subjectPronoum/objectPronoum/possesivePronoum/possesiveAdjective).',
+  'Tools, provided by the editor (call get_current_* before modifying an existing resource):',
+  '- get_current_problem() / apply_problem(spec): read / write the problem.',
+  '- get_current_behaviour() / apply_behaviour(spec): read / write the behaviour.',
+  '- get_current_persona() / apply_persona(spec): read / write the persona.',
+  'Every apply_* takes a `name` (short kebab-case) — ALWAYS set it so the instructor does not have to rename the resource afterwards.',
   'Guidance:',
+  '- When the user asks for an activity/LEIA (or attaches a PDF), build the WHOLE LEIA: call apply_problem AND apply_behaviour AND apply_persona so the three resources fit together coherently. If the user only asks about the problem, you may write just the problem.',
   '- If the user attaches a PDF and asks to convert it into a problem, read the PDF, reconstruct the scenario, and call apply_problem with a complete spec. If the solution should be a diagram, put valid mermaid in `solution` and set solutionFormat to "mermaid".',
   '- If the user asks to change the current problem, call get_current_problem first, then apply_problem with the updated spec.',
   '- Keep description/personaBackground/details/solution internally consistent. Template tags like {{persona.firstName}} may be used where natural.',
