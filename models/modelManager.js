@@ -1,15 +1,21 @@
 const fs = require('fs').promises;
 const path = require('path');
-const { redisClient } = require('../config/redis');
 require('dotenv').config();
 const modelSyncService = require('../services/modelSyncService');
+const apiKeyService = require('../services/apiKeyService');
 
 class ModelManager {
   constructor() {
-    this.models = new Map();
     this.modelDir = path.join(__dirname, 'providers');
-    this.validatedModels = new Set();
     this.defaultModel = process.env.DEFAULT_MODEL || 'openai';
+    // Almacena los constructores de los providers, antes se llamaba models
+    this.providerModules = new Map();
+    // Almacena los proveedores de API Key asociados a cada providerModule
+    this.modelApiKeyProviders = new Map();
+    // Mapa para relacionar providerModules con sus proveedores de API Key
+    this.providerProviderModuleMap = new Map();
+    // Cache para instancias de modelos, claveada por un token que puede ser provider:modelName:apiKeyId o similar
+    this.instancePromiseCache = new Map();
   }
 
   async initialize() {
@@ -22,31 +28,20 @@ class ModelManager {
           throw error;
         }
       }
-      
-      // Cargar modelos desde Redis
-      const cachedModels = await redisClient.hGetAll('validated_models');
-      if (cachedModels) {
-        Object.keys(cachedModels).forEach(modelName => {
-          if (cachedModels[modelName] === 'true') {
-            this.validatedModels.add(modelName);
-          }
-        });
-      }
-      
-      // Cargar y probar todos los modelos disponibles
+
       await this.loadModels();
 
-      // Verificar que el modelo por defecto está disponible
-      if (this.defaultModel && !this.validatedModels.has(this.defaultModel)) {
-        // Si el modelo por defecto no está validado, tomar el primer modelo validado
-        if (this.validatedModels.size > 0) {
-          this.defaultModel = Array.from(this.validatedModels)[0];
-          console.log(`Modelo por defecto '${process.env.DEFAULT_MODEL}' no está validado. Usando '${this.defaultModel}' como modelo por defecto.`);
+      if (!this.providerModules.has(this.defaultModel)) {
+        const firstModel = Array.from(this.providerModules.keys())[0];
+        if (firstModel) {
+          this.defaultModel = firstModel;
+          console.warn(
+            `Modelo por defecto '${process.env.DEFAULT_MODEL}' no está disponible. Usando '${this.defaultModel}'.`
+          );
         } else {
-          console.warn('No hay modelos validados disponibles.');
+          console.warn('No hay modelos disponibles cargados.');
         }
       }
-      
       console.log(`Modelo manager inicializado exitosamente. Modelo por defecto: ${this.defaultModel}`);
     } catch (error) {
       console.error('Error inicializando el manager de modelos:', error);
@@ -56,32 +51,24 @@ class ModelManager {
 
   async loadModels() {
     try {
+      this.providerModules.clear();
       const files = await fs.readdir(this.modelDir);
-      const modelFiles = files.filter(file => file.endsWith('.js')).filter(file => file !== 'baseModel.js');
-      
-      for (const file of modelFiles) {
-        const modelName = path.basename(file, '.js');
-        const modelPath = path.join(this.modelDir, file);
-        
+      const providerFiles = files.filter((file) => file.endsWith('.js') && file !== 'baseModel.js');
+
+      for (const file of providerFiles) {
+        const providerModuleName = path.basename(file, '.js');
+        const providerModulePath = path.join(this.modelDir, file);
+
         try {
           // Importar el modelo
-          const modelModule = require(modelPath);
-          
-          // Ejecutar tests automáticos
-          const testResult = await this.testModel(modelModule, modelName);
-          
-          if (testResult.success) {
-            // Si pasa los tests, registrarlo como validado
-            this.models.set(modelName, modelModule);
-            this.validatedModels.add(modelName);
-            await redisClient.hSet('validated_models', modelName, 'true');
-            console.log(`Modelo '${modelName}' cargado y validado exitosamente`);
-          } else {
-            console.error(`Modelo '${modelName}' falló los tests:`, testResult.errors);
-            await redisClient.hSet('validated_models', modelName, 'false');
-          }
+          const ProviderModule = require(providerModulePath);
+          const providerInstance = new ProviderModule();
+          this.providerModules.set(providerModuleName, ProviderModule);
+          this.setApiKeyProviders(providerInstance);
+          this.setProviderModulesProvidersMap(providerModuleName, providerInstance.apiKeyProvider);
+          console.log(`Modelo '${providerModuleName}' cargado exitosamente`);
         } catch (error) {
-          console.error(`Error cargando el modelo '${modelName}':`, error);
+          console.error(`Error cargando el modelo '${providerModuleName}':`, error);
         }
       }
     } catch (error) {
@@ -90,188 +77,144 @@ class ModelManager {
     }
   }
 
-  async testModel(modelModule, modelName) {
-    console.log(`Ejecutando tests para el modelo '${modelName}'...`);
-    const result = { success: true, errors: [] };
-
-    // Verificar estructura del modelo
-    if (!modelModule.sendMessage || typeof modelModule.sendMessage !== 'function') {
-      result.success = false;
-      result.errors.push('El modelo no implementa el método sendMessage');
+  setProviderModulesProvidersMap(providerModuleName, apiKeyProvider) {
+    if (!this.providerProviderModuleMap.has(apiKeyProvider)) {
+      this.providerProviderModuleMap.set(apiKeyProvider, providerModuleName);
     }
-
-    if (!modelModule.createSession || typeof modelModule.createSession !== 'function') {
-      result.success = false;
-      result.errors.push('El modelo no implementa el método createSession');
-    }
-
-
-    if (!modelModule.evaluateSolution || typeof modelModule.evaluateSolution !== 'function') {
-      console.warn(`El modelo '${modelName}' no implementa el método evaluateSolution. Algunas funcionalidades de evaluación no estarán disponibles.`);
-
-    }
-
-    // Si la estructura es correcta, realizar test básico
-    if (result.success) {
-      try {
-        // Crear una sesión de prueba
-        const sessionData = await modelModule.createSession({
-          instructions: 'Este es un test automatizado.'
-        });
-
-        // Enviar un mensaje simple y verificar la respuesta
-        const response = await modelModule.sendMessage({
-          sessionId: 'test-session',
-          message: '¿Estás funcionando correctamente?',
-          sessionData: sessionData
-        });
-
-        if (!response || !response.message) {
-          result.success = false;
-          result.errors.push('El modelo no devolvió una respuesta válida');
+  }
+  /**
+   * Recibe una instancia del modelo y obtiene su proveedor de ApiKey para actualizar el mapa del modelManager
+   * @param {string} modelName - Nombre del modelo a registrar
+   * @param {ProviderObject} modelModule
+   */
+  setApiKeyProviders(modelInstance) {
+    const model = modelInstance.model || 'default';
+    try {
+      if (modelInstance && modelInstance.apiKeyProvider) {
+        const apiKeyProvider = modelInstance.apiKeyProvider;
+        if (this.modelApiKeyProviders.has(apiKeyProvider)) {
+          this.modelApiKeyProviders.set(apiKeyProvider, [...this.modelApiKeyProviders.get(apiKeyProvider), model]);
+        } else {
+          this.modelApiKeyProviders.set(apiKeyProvider, [model]);
         }
-      } catch (error) {
-        result.success = false;
-        result.errors.push(`Error en el test: ${error.message}`);
+      } else {
+        console.warn(`El modelo '${model}' no tiene definido un apiKeyProvider.`);
       }
+    } catch (error) {
+      console.error(`Error estableciendo el proveedor de API key para el modelo '${model}':`, error);
     }
-
-    return result;
   }
-
-  getModel(modelName = 'default') {
+  //getProviderInstance
+  async getModel(provider = 'default', apiKeyId, apiKeyRequesterId, sessionModelToken) {
     // Si se solicita el modelo por defecto, usar el configurado
-    if (modelName === 'default') {
-      if (this.validatedModels.has(this.defaultModel)) {
-        return this.models.get(this.defaultModel);
-      } else if (this.validatedModels.size > 0) {
-        // Si el modelo por defecto no está disponible, usar el primero validado
-        const firstModel = Array.from(this.validatedModels)[0];
-        return this.models.get(firstModel);
+    const targetProvider = provider === 'default' ? this.defaultModel : provider;
+    if (!this.providerModules.has(targetProvider)) {
+      return Promise.reject(new Error(`Modelo '${targetProvider}' no encontrado`));
+    }
+    if (this.instancePromiseCache.has(sessionModelToken)) {
+      const cached = this.instancePromiseCache.get(sessionModelToken);
+      const isRevoked = await this.checkRevocationStatus(cached.createdAt, apiKeyId, sessionModelToken);
+      if (!isRevoked) {
+        return cached.promise;
       }
     }
-    
-    // Verificar si el modelo solicitado existe y está validado
-    if (this.validatedModels.has(modelName)) {
-      return this.models.get(modelName);
-    }
-    
-    throw new Error(`Modelo '${modelName}' no encontrado o no validado`);
-  }
 
+    if (this.instancePromiseCache.has(sessionModelToken)) {
+      return this.instancePromiseCache.get(sessionModelToken).promise;
+    }
+    const instancePromise = this.createModelInstance(targetProvider, apiKeyId, apiKeyRequesterId, sessionModelToken);
+    this.instancePromiseCache.set(sessionModelToken, {
+      promise: instancePromise,
+      createdAt: new Date(),
+    });
+    return instancePromise;
+  }
+  async checkRevocationStatus(createdAt, apiKeyId, sessionModelToken) {
+    const revokedAtApiKey = await apiKeyService.getApiKeyRevokedAt(apiKeyId);
+    if (revokedAtApiKey && revokedAtApiKey > createdAt) {
+      this.instancePromiseCache.delete(sessionModelToken);
+      return true;
+    }
+    return false;
+  }
+  async createModelInstance(targetProvider, apiKeyId, apiKeyRequesterId, sessionModelToken) {
+
+    try {
+      const ModelClass = this.providerModules.get(targetProvider);
+      const modelInstance = new ModelClass();
+
+      if (!modelInstance.apiKeyProvider) {
+      throw new Error(`El modelo '${targetProvider}' no tiene un apiKeyProvider definido, no se puede configurar la API key.`);
+      }
+      const {keyValue, baseUrl} = await apiKeyService.getApiKeyData(modelInstance.apiKeyProvider, apiKeyId, apiKeyRequesterId);
+      modelInstance.setApiKey(keyValue);
+      if (baseUrl) {
+        modelInstance.setBaseURL(baseUrl);
+      }
+      return modelInstance;
+    }catch (error) {
+      console.error(`Error creando instancia del modelo '${targetProvider}':`, error);
+      this.instancePromiseCache.delete(sessionModelToken);
+      throw error;
+    }
+  }
+  // registerProviderModule
   async registerModel(modelName, modelCode) {
     try {
       // Guardar el modelo en el sistema de archivos
       const modelPath = path.join(this.modelDir, `${modelName}.js`);
       await fs.writeFile(modelPath, modelCode);
-      
+
       // Recargar y probar el modelo
       delete require.cache[require.resolve(modelPath)];
       const modelModule = require(modelPath);
-      
-      const testResult = await this.testModel(modelModule, modelName);
-      
-      if (testResult.success) {
-        this.models.set(modelName, modelModule);
-        this.validatedModels.add(modelName);
-        await redisClient.hSet('validated_models', modelName, 'true');
-        this.notifyModelChanges();
-        return { success: true };
-      } else {
-        await redisClient.hSet('validated_models', modelName, 'false');
-        return { 
-          success: false, 
-          errors: testResult.errors 
+
+      if (typeof modelModule.createSession !== 'function' || typeof modelModule.sendMessage !== 'function') {
+        return {
+          success: false,
+          errors: ['El modelo debe implementar createSession y sendMessage'],
         };
       }
+
+      this.providerModules.set(modelName, modelModule);
+      await this.notifyModelChanges();
+      return { success: true };
     } catch (error) {
       console.error(`Error registrando el modelo '${modelName}':`, error);
-      return { 
-        success: false, 
-        errors: [error.message] 
+      return {
+        success: false,
+        errors: [error.message],
       };
     }
   }
 
-  getAvailableModels() {
-    return Array.from(this.validatedModels);
+  async initializeProviderModules() {
+    await this.initialize();
   }
 
+  getAvailableModels() {
+    return Array.from(this.providerModules.keys());
+  }
+
+  getApiKeyProvidersByModel() {
+    return Object.fromEntries(this.modelApiKeyProviders);
+  }
+
+  getProviderProviderModuleMap() {
+    return Object.fromEntries(this.providerProviderModuleMap);
+  }
   getDefaultModel() {
     return this.defaultModel;
   }
 
   setDefaultModel(name) {
-    if (!this.models.has(name)) {
+    if (!this.providerModules.has(name)) {
       throw new Error(`Model ${name} not found`);
     }
     this.defaultModel = name;
-    this.notifyModelChanges();
+    return this.notifyModelChanges();
   }
 
-  async notifyModelChanges() {
-    try {
-      await modelSyncService.syncModels();
-    } catch (error) {
-      console.error('Error notifying model changes:', error);
-    }
-  }
-
-  /**
-   * Inicializa los modelos disponibles
-   * @returns {Promise<void>}
-   */
-  async initializeModels() {
-    try {
-      // Registrar modelos que tenemos en el sistema de archivos
-      await this.loadModels();
-    } catch (error) {
-      console.error('Error initializing models:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Registra un nuevo modelo
-   * @param {string} name - Nombre del modelo
-   * @param {Object} model - Instancia del modelo
-   */
-  registerModel(name, model) {
-    this.models.set(name, model);
-    this.notifyModelChanges();
-  }
-
-  /**
-   * Obtiene todos los modelos disponibles
-   * @returns {Array<string>} - Lista de nombres de modelos
-   */
-  getAvailableModels() {
-    return Array.from(this.models.keys());
-  }
-
-  /**
-   * Obtiene el modelo por defecto
-   * @returns {string} - Nombre del modelo por defecto
-   */
-  getDefaultModel() {
-    return this.defaultModel;
-  }
-
-  /**
-   * Establece el modelo por defecto
-   * @param {string} name - Nombre del modelo
-   */
-  setDefaultModel(name) {
-    if (!this.models.has(name)) {
-      throw new Error(`Model ${name} not found`);
-    }
-    this.defaultModel = name;
-    this.notifyModelChanges();
-  }
-
-  /**
-   * Notifica cambios en los modelos y sincroniza con Redis
-   */
   async notifyModelChanges() {
     try {
       await modelSyncService.syncModels();
@@ -284,4 +227,4 @@ class ModelManager {
 // Singleton pattern
 const modelManager = new ModelManager();
 
-module.exports = modelManager; 
+module.exports = modelManager;
