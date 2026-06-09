@@ -99,11 +99,11 @@ async function generateLeiaAvatar(leia) {
   return generateAvatar("leia", leia);
 }
 
-async function generateInfographic(behaviour) {
+async function generateInfographic(behaviour, solution) {
   const ai = getGeminiClient();
   const response = await ai.models.generateContent({
     model: IMAGE_MODEL,
-    contents: prompts.inphografic(behaviour),
+    contents: solution ? prompts.infographicWithSolution(behaviour, solution) : prompts.infographic(behaviour),
   });
 
   const sourceBuffer = extractImage(response);
