@@ -9,7 +9,7 @@ const problemGeneratorController = require('../controllers/problemGeneratorContr
 const behaviourGeneratorController = require('../controllers/behaviourGeneratorController');
 const problemChatController = require('../controllers/problemChatController');
 const supervisorController = require('../controllers/supervisorController');
-const avatarGenerationController = require('../controllers/avatarGenerationController');
+const imageGenerationController = require('../controllers/imageGenerationController');
 const multer = require('multer');
 const { bearerAuth } = require('../utils/auth');
 
@@ -41,10 +41,11 @@ router.post('/transcriptions/generate', transcriptionController.generateTranscri
 router.post('/problems/generate', problemGeneratorController.generateProblem);
 router.post('/behaviours/generate', behaviourGeneratorController.generateBehaviour);
 
-// Endpoints para generación de avatares con IA
-router.post('/avatars/personas/generate', avatarGenerationController.generatePersonaAvatar);
-router.post('/avatars/problems/generate', avatarGenerationController.generateProblemAvatar);
-router.post('/avatars/leias/generate', avatarGenerationController.generateLeiaAvatar);
+// Endpoints para generación de imagenes con IA
+router.post('/avatars/personas/generate', imageGenerationController.generatePersonaAvatar);
+router.post('/avatars/problems/generate', imageGenerationController.generateProblemAvatar);
+router.post('/avatars/leias/generate', imageGenerationController.generateLeiaAvatar);
+router.post('/infographics/generate', imageGenerationController.generateInfographic);
 
 // Problem-chat assistant (design-time): attach PDFs, chat; tools are executed in the FE.
 router.post('/problems/chat/session', problemChatController.openProblemChat);

@@ -99,8 +99,23 @@ async function generateLeiaAvatar(leia) {
   return generateAvatar("leia", leia);
 }
 
+async function generateInfographic(behaviour) {
+  const ai = getGeminiClient();
+  const response = await ai.models.generateContent({
+    model: IMAGE_MODEL,
+    contents: prompts.inphografic(behaviour),
+  });
+
+  const sourceBuffer = extractImage(response);
+  return {
+    infographic: sourceBuffer,
+    sizeBytes: sourceBuffer.length,
+  };
+}
+
 module.exports = {
   generatePersonaAvatar,
   generateProblemAvatar,
   generateLeiaAvatar,
+  generateInfographic
 };
