@@ -31,7 +31,10 @@ function extractImage(response) {
     throw new Error("Gemini did not return image data");
   }
 
-  return Buffer.from(imagePart.inlineData.data, "base64");
+  return {
+    buffer: Buffer.from(imagePart.inlineData.data, "base64"),
+    contentType: imagePart.inlineData.mimeType || "image/png",
+  };
 }
 
 async function compressAvatarToDataUrl(sourceBuffer) {
@@ -78,7 +81,7 @@ async function generateAvatar(type, payload) {
     contents: promptBuilder(payload),
   });
 
-  const sourceBuffer = extractImage(response);
+  const { buffer: sourceBuffer } = extractImage(response);
   const avatar = await compressAvatarToDataUrl(sourceBuffer);
 
   return {
@@ -99,16 +102,17 @@ async function generateLeiaAvatar(leia) {
   return generateAvatar("leia", leia);
 }
 
-async function generateInfographic(behaviour, solution) {
+async function generateInfographic(behaviour, solution = false) {
   const ai = getGeminiClient();
   const response = await ai.models.generateContent({
     model: IMAGE_MODEL,
-    contents: solution ? prompts.infographicWithSolution(behaviour, solution) : prompts.infographic(behaviour),
+    contents: solution === true ? prompts.infographicSolution(behaviour) : prompts.infographic(behaviour),
   });
 
-  const sourceBuffer = extractImage(response);
+  const { buffer: sourceBuffer, contentType } = extractImage(response);
   return {
     infographic: sourceBuffer,
+    contentType,
     sizeBytes: sourceBuffer.length,
   };
 }

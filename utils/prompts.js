@@ -66,7 +66,7 @@ const Prompts = {
     `Problem description: ${problemDescription || "No problem description provided"}.`,
   ].join("\n"),
 
-  inphografic: (behaviour) => [
+  infographic: (behaviour) => [
     "Create a polished A4 vertical infographic for the participant who will complete this specific LEIA exercise.",
     "The infographic must help the participant prepare and perform better during the interview, without revealing a complete answer or a scripted solution.",
     "",
@@ -97,7 +97,7 @@ const Prompts = {
     behaviour,
   ].join("\n"),
 
-  InphograficSolution: (behaviour) => [
+  infographicSolution: (behaviour) => [
     "Create a polished A4 vertical infographic for the teacher or evaluator of this specific LEIA exercise.",
     "The infographic must act as a solution-oriented guide: it should explain how a strong participant should conduct the interview and what evidence of good performance to look for.",
     "",
