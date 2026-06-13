@@ -1,6 +1,7 @@
 const { GoogleGenAI } = require("@google/genai");
 const prompts = require("../utils/prompts");
 const sharp = require("sharp");
+const apiKeyService = require("./apiKeyService");
 
 const avatarKbytes = Number(process.env.AVATAR_KBYTES ?? 4);
 const MAX_AVATAR_BYTES = avatarKbytes * 1024;
@@ -12,15 +13,28 @@ const AVATAR_PROMPTS = {
   leia: prompts.leiaAvatar,
 };
 
-function getGeminiClient() {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  if (!apiKey) {
-    const error = new Error("GEMINI_API_KEY is not configured");
+async function getGeminiClient(apiKeyConfig) {
+  const { apiKeyId, apiKeyRequesterId } = apiKeyConfig || {};
+  if (!apiKeyId || !apiKeyRequesterId) {
+    const error = new Error("Gemini apiKeyId and apiKeyRequesterId are required");
+    error.code = "invalid_api_key";
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const { keyValue } = await apiKeyService.getApiKeyData(
+    "gemini",
+    apiKeyId,
+    apiKeyRequesterId
+  );
+
+  if (!keyValue) {
+    const error = new Error("Gemini API key could not be resolved");
     error.code = "invalid_api_key";
     throw error;
   }
 
-  return new GoogleGenAI({ apiKey });
+  return new GoogleGenAI({ apiKey: keyValue });
 }
 
 function extractImage(response) {
@@ -68,14 +82,14 @@ async function compressAvatarToDataUrl(sourceBuffer) {
   return dataUrl;
 }
 
-async function generateAvatar(type, payload) {
+async function generateAvatar(type, payload, apiKeyConfig) {
   const promptBuilder = AVATAR_PROMPTS[type];
 
   if (!promptBuilder) {
     throw new Error(`Unsupported avatar type: ${type}`);
   }
 
-  const ai = getGeminiClient();
+  const ai = await getGeminiClient(apiKeyConfig);
   const response = await ai.models.generateContent({
     model: IMAGE_MODEL,
     contents: promptBuilder(payload),
@@ -90,16 +104,16 @@ async function generateAvatar(type, payload) {
   };
 }
 
-async function generatePersonaAvatar({ name, description, personality }) {
-  return generateAvatar("persona", { name, description, personality });
+async function generatePersonaAvatar({ name, description, personality }, apiKeyConfig) {
+  return generateAvatar("persona", { name, description, personality }, apiKeyConfig);
 }
 
-async function generateProblemAvatar(problem) {
-  return generateAvatar("problem", problem);
+async function generateProblemAvatar(problem, apiKeyConfig) {
+  return generateAvatar("problem", problem, apiKeyConfig);
 }
 
-async function generateLeiaAvatar(leia) {
-  return generateAvatar("leia", leia);
+async function generateLeiaAvatar(leia, apiKeyConfig) {
+  return generateAvatar("leia", leia, apiKeyConfig);
 }
 
 function removeSolutionForStudent(context) {
@@ -122,8 +136,8 @@ function stringifyInfographicContext(context, includeSolution = false) {
   }
 }
 
-async function generateInfographic(behaviour, solution = false) {
-  const ai = getGeminiClient();
+async function generateInfographic(behaviour, solution = false, apiKeyConfig) {
+  const ai = await getGeminiClient(apiKeyConfig);
   const infographicContext = stringifyInfographicContext(behaviour, solution === true);
   const response = await ai.models.generateContent({
     model: IMAGE_MODEL,
@@ -145,5 +159,6 @@ module.exports = {
   generatePersonaAvatar,
   generateProblemAvatar,
   generateLeiaAvatar,
-  generateInfographic
+  generateInfographic,
+  getGeminiClient
 };
