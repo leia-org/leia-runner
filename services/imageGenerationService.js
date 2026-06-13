@@ -102,11 +102,35 @@ async function generateLeiaAvatar(leia) {
   return generateAvatar("leia", leia);
 }
 
+function removeSolutionForStudent(context) {
+  const copy = structuredClone(context);
+  const problemSpec = copy?.spec?.problem?.spec;
+
+  if (problemSpec) {
+    delete problemSpec.solution;
+  }
+
+  return copy;
+}
+
+function stringifyInfographicContext(context, includeSolution = false) {
+  try {
+    const normalized = includeSolution ? context : removeSolutionForStudent(context);
+    return JSON.stringify(normalized, null, 2);
+  } catch {
+    return String(context);
+  }
+}
+
 async function generateInfographic(behaviour, solution = false) {
   const ai = getGeminiClient();
+  const infographicContext = stringifyInfographicContext(behaviour, solution === true);
   const response = await ai.models.generateContent({
     model: IMAGE_MODEL,
-    contents: solution === true ? prompts.infographicSolution(behaviour) : prompts.infographic(behaviour),
+    contents:
+      solution === true
+        ? prompts.infographicSolution(infographicContext)
+        : prompts.infographic(infographicContext),
   });
 
   const { buffer: sourceBuffer, contentType } = extractImage(response);

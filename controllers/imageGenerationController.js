@@ -79,12 +79,14 @@ const generateLeiaAvatar = async (req, res) => {
 };
 
 const generateInfographic = async (req, res) => {
-  const { behaviour, solution } = req.body;
-  if (!isObject(behaviour)) {
-    return res.status(400).json({ error: "Behaviour is required" });
+  const { leia, solution } = req.body;
+
+  if (!isObject(leia)) {
+    return res.status(400).json({ error: "LEIA is required" });
   }
+
   try {
-    const result = await imageService.generateInfographic(behaviour, solution);
+    const result = await imageService.generateInfographic(leia, solution);
     res.json(result);
   }
   catch (error) {
