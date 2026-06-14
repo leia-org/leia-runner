@@ -107,15 +107,17 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
   }
 
   extractTextFromInteraction(interaction) {
-    if (!interaction || !Array.isArray(interaction.outputs)) {
+    if (!interaction || !Array.isArray(interaction.steps)) {
       return '';
     }
 
-    return interaction.outputs
-      .filter(output => output?.type === 'text' && typeof output.text === 'string')
-      .map(output => output.text.trim())
-      .filter(Boolean)
-      .join('\n\n');
+    return interaction.steps
+    .filter(step => step?.type === 'model_output' && Array.isArray(step.content))
+    .flatMap(step => step.content)
+    .filter(content => content?.type === 'text' && typeof content.text === 'string')
+    .map(content => content.text.trim())
+    .filter(Boolean)
+    .join('\n\n');
   }
 
   async createInteraction({ model, input, systemInstruction, previousInteractionId, responseFormat }) {
