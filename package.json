@@ -19,7 +19,7 @@
     "update-deps": "npm update"
   },
   "dependencies": {
-    "@google/genai": "^1.46.0",
+    "@google/genai": "^2.8.0",
     "axios": "^1.15.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
