@@ -5,7 +5,7 @@ const apiKeyService = require("./apiKeyService");
 
 const avatarKbytes = Number(process.env.AVATAR_KBYTES ?? 4);
 const MAX_AVATAR_BYTES = avatarKbytes * 1024;
-const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image";
+const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image";
 
 const AVATAR_PROMPTS = {
   persona: prompts.personaAvatar,
