@@ -4,6 +4,11 @@ const Errors = require('../../utils/errors');
 const ProviderState = require('../providerState');
 const { GoogleGenAI } = require('@google/genai');
 const ApiKeyProvider = require('../constants');
+const {
+  createGeminiInteraction,
+  extractTextFromInteraction,
+  normalizeGeminiResponseFormat,
+} = require('../../utils/geminiInteractions');
 
 /**
  * Proveedor de modelo basado en Gemini Interactions API.
@@ -107,15 +112,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
   }
 
   extractTextFromInteraction(interaction) {
-    if (!interaction || !Array.isArray(interaction.outputs)) {
-      return '';
-    }
-
-    return interaction.outputs
-      .filter(output => output?.type === 'text' && typeof output.text === 'string')
-      .map(output => output.text.trim())
-      .filter(Boolean)
-      .join('\n\n');
+    return extractTextFromInteraction(interaction);
   }
 
   async createInteraction({ model, input, systemInstruction, previousInteractionId, responseFormat }) {
@@ -133,10 +130,14 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     }
 
     if (responseFormat) {
-      requestBody.response_format = responseFormat;
+      requestBody.response_format = normalizeGeminiResponseFormat(responseFormat);
     }
 
-    const interaction = await this.getClient().interactions.create(requestBody);
+    const interaction = await createGeminiInteraction({
+      client: this.getClient(),
+      apiKey: this.ensureApiKey(),
+      requestBody,
+    });
 
     if (interaction.status && interaction.status !== 'completed') {
       throw Errors.gemini.interactionStatusError(interaction.status);

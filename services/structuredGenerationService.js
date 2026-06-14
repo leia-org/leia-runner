@@ -1,5 +1,10 @@
 const { OpenAI } = require('openai');
 const { zodTextFormat } = require('openai/helpers/zod');
+const {
+  createGeminiInteraction,
+  extractTextFromInteraction,
+  normalizeGeminiResponseFormat,
+} = require('../utils/geminiInteractions');
 
 const DEFAULT_PROVIDER = 'openai';
 const SUPPORTED_PROVIDERS = new Set(['openai', 'gemini']);
@@ -129,11 +134,17 @@ class StructuredGenerationService {
     geminiModel,
     geminiResponseFormat,
   }) {
-    const interaction = await this.getGeminiClient().interactions.create({
-      model: geminiModel,
-      input: userPrompt,
-      system_instruction: systemPrompt,
-      ...(geminiResponseFormat ? { response_format: geminiResponseFormat } : {}),
+    const interaction = await createGeminiInteraction({
+      client: this.getGeminiClient(),
+      apiKey: process.env.GEMINI_API_KEY,
+      requestBody: {
+        model: geminiModel,
+        input: userPrompt,
+        system_instruction: systemPrompt,
+        ...(geminiResponseFormat
+          ? { response_format: normalizeGeminiResponseFormat(geminiResponseFormat) }
+          : {}),
+      },
     });
 
     if (interaction.status && interaction.status !== 'completed') {
@@ -157,15 +168,7 @@ class StructuredGenerationService {
   }
 
   extractTextFromInteraction(interaction) {
-    if (!interaction || !Array.isArray(interaction.outputs)) {
-      return '';
-    }
-
-    return interaction.outputs
-      .filter((output) => output?.type === 'text' && typeof output.text === 'string')
-      .map((output) => output.text.trim())
-      .filter(Boolean)
-      .join('\n\n');
+    return extractTextFromInteraction(interaction);
   }
 
   sanitizeJsonResponse(responseText) {
