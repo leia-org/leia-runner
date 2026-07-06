@@ -7,93 +7,40 @@ class SessionService {
     this.leiaMetaPrefix = 'leia:meta:';
   }
 
-  serializeSessionData(sessionData) {
-    const redisSessionData = {};
-
-    for (const [key, value] of Object.entries(sessionData)) {
-      if (value === null || value === undefined) {
-        redisSessionData[key] = '';
-      } else if (typeof value === 'object') {
-        redisSessionData[key] = JSON.stringify(value);
-      } else {
-        redisSessionData[key] = String(value);
-      }
-    }
-
-    return redisSessionData;
-  }
-
-  deserializeSessionData(sessionData) {
-    if (!sessionData || Object.keys(sessionData).length === 0) {
-      return null;
-    }
-
-    const normalizedSessionData = { ...sessionData };
-
-    if (normalizedSessionData.providerState) {
-      try {
-        normalizedSessionData.providerState = JSON.parse(normalizedSessionData.providerState);
-      } catch (error) {
-        console.warn('No se pudo parsear providerState, se usará el valor almacenado:', error.message);
-      }
-    }
-
-    return normalizedSessionData;
-  }
-
-  async updateSession(sessionId, sessionUpdates) {
-    const currentSessionData = await this.getSession(sessionId);
-
-    if (!currentSessionData) {
-      return null;
-    }
-
-    const mergedSessionData = { ...currentSessionData };
-
-    for (const [key, value] of Object.entries(sessionUpdates)) {
-      if (value !== undefined) {
-        mergedSessionData[key] = value;
-      }
-    }
-
-    await redisClient.hSet(
-      `${this.keyPrefix}${sessionId}`,
-      this.serializeSessionData(mergedSessionData)
-    );
-
-    return mergedSessionData;
-  }
-
-  // Darle caña aqui
-  async createSession(sessionId, prompt, modelName, provider, apiKeyId, apiKeyRequesterId) {
+  async createSession(sessionId, prompt, modelName = 'default') {
     try {
       // Get the model
-       //"provider,keyId" //no singleton quiza es mejor modelname:apiKeyId,
-       // en vd es lo mismo pq el modelName nos da igual pa eso
-       //Ahora msimo se va a hacr con el providerModule pero de cara a usar vrios modelos distintos se podri aplantear tb el modelo
-      const sessionModelToken = `${provider}:${modelName}:${apiKeyId}`;
-      const model = await modelManager.getModel(provider, apiKeyId, apiKeyRequesterId, sessionModelToken);
+      const model = modelManager.getModel(modelName);
+
       // Create a session with the selected provider
       const sessionDetails = await model.createSession({
-        instructions: prompt
+        instructions: prompt, sessionId
       });
 
       // Save session information in Redis
       const sessionData = {
         sessionId,
-        provider: provider,//(provider)
-        modelName: modelName,
-        apiKeyId: apiKeyId,
-        apiKeyRequesterId: apiKeyRequesterId,
-        threadId: sessionDetails.threadId ?? '',
-        providerState: sessionDetails.providerState ?? '',
-        createdAt: Date.now()
+        modelName,
+        assistantId: sessionDetails.assistantId || null,
+        threadId: sessionDetails.threadId || null,
+        createdAt: Date.now().toString()
       };
+
+      const redisSessionData = {};
+      for (const [key, value] of Object.entries(sessionData)) {
+        redisSessionData[key] = value !== null && value !== undefined ? String(value) : '';
+      }
 
       await redisClient.hSet(
         `${this.keyPrefix}${sessionId}`,
-        this.serializeSessionData(sessionData)
+        Object.fromEntries(
+          Object.entries(sessionData).map(([key, value]) => [
+            key,
+            value !== null && value !== undefined ? String(value) : ''
+          ])
+        )
       );
+
       return sessionData;
     } catch (error) {
       console.error(`Error creating session ${sessionId}:`, error);
@@ -105,14 +52,18 @@ class SessionService {
     try {
       const sessionData = await redisClient.hGetAll(`${this.keyPrefix}${sessionId}`);
 
-      return this.deserializeSessionData(sessionData);
+      if (!sessionData || Object.keys(sessionData).length === 0) {
+        return null;
+      }
+
+      return sessionData;
     } catch (error) {
       console.error(`Error getting session ${sessionId}:`, error);
       throw error;
     }
   }
 
-  async sendMessage(sessionId, message, options = {}) {
+  async sendMessage(sessionId, message) {
     try {
       // Get the session
       const sessionData = await this.getSession(sessionId);
@@ -121,31 +72,15 @@ class SessionService {
         return null; // Return null instead of throwing an error
       }
 
-      // Honor the activity-level gate set at createLeia. If the LEIA was
-      // not configured with widgets/toolfunctions, tools coming in on the
-      // request are ignored (and so are toolResults, since they wouldn't
-      // belong to any prior tool call).
-      const leiaMeta = await this.getLeiaMeta(sessionId);
-      const allowTools = leiaMeta?.toolFunctionsEnabled === 'true';
-
-      // Get the model for this session (BYOK: resolved by provider + api key).
-      const sessionModelToken = `${sessionData.provider}:${sessionData.modelName}:${sessionData.apiKeyId}`;
-      const model = await modelManager.getModel(sessionData.provider, sessionData.apiKeyId, sessionData.apiKeyRequesterId, sessionModelToken);
+      // Get the model for this session
+      const model = modelManager.getModel(sessionData.modelName);
 
       // Send the message through the model
       const response = await model.sendMessage({
         sessionId,
         message,
-        sessionData,
-        allowTools,
-        tools: allowTools ? options.tools : undefined,
-        toolResults: allowTools ? options.toolResults : undefined,
+        sessionData
       });
-
-      if (response?.sessionData) {
-        await this.updateSession(sessionId, response.sessionData);
-        delete response.sessionData;
-      }
 
       return response;
     } catch (error) {
@@ -202,4 +137,4 @@ class SessionService {
 }
 
 const sessionService = new SessionService();
-module.exports = sessionService;
+module.exports = sessionService; 

@@ -4,7 +4,6 @@ WORKDIR /leia-runner
 
 COPY . .
 
-RUN npm ci --omit=dev && \
-    rm -rf $(npm get cache)
+RUN npm install --omit=dev
 
 ENTRYPOINT ["npm", "start"]

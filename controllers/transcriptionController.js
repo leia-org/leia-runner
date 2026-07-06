@@ -30,10 +30,10 @@ module.exports.generateTranscription = async function generateTranscription(req,
   } catch (error) {
     console.error('Error generating transcription:', error);
 
-    // Handle provider configuration errors
-    if (error.message?.includes('API_KEY is not configured') || error.code === 'invalid_api_key') {
+    // Handle specific OpenAI API errors
+    if (error.message?.includes('API key')) {
       return res.status(401).send({
-        error: 'AI provider configuration error'
+        error: 'OpenAI API configuration error'
       });
     }
 

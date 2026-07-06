@@ -1,184 +1,198 @@
-require('dotenv').config();
-const BaseModel = require('./baseModel');
-const Errors = require('../../utils/errors');
-const ProviderState = require('../providerState');
-const { ConversationStore } = require('../conversationStore');
-const ApiKeyProvider = require('../constants');
+require("dotenv").config();
+const OpenAI = require("openai");
+const BaseModel = require("./baseModel");
+// const ollama = require("ollama").default;
+const weaviate = require("weaviate-client");
 
-class OllamaProvider extends BaseModel {
+const { Ollama } = require("ollama");
+
+const ollama = new Ollama({
+  host: process.env.OLLAMA_US_URL,
+});
+
+class OpenAIAssistantProvider extends BaseModel {
   constructor() {
     super();
-    this.name = 'ollama';
-    this.model = process.env.OLLAMA_MODEL || 'llama3.1:8b';
-    this.apiKeyProvider = ApiKeyProvider.OLLAMA;
-    this.evaluationModel = process.env.OLLAMA_EVALUATION_MODEL || this.model;
-    this.baseUrl = (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/+$/, '');
-    this.conversationStore = new ConversationStore({
-      providerName: 'ollama',
-      defaultMaxMessages: 60
-    });
+    this.name = "ollama";
+    this.threads = {};
+    this.weaviateClient = null;
   }
 
-  // Requerido por BaseModel
-  createClient() {
-    return {
-      baseUrl: this.baseUrl,
-      apiKey: process.env.OLLAMA_API_KEY || '',
-    };
+  async getWeaviateClient() {
+    if (this.weaviateClient) {
+      try {
+        const isReady = await this.weaviateClient.isReady();
+        if (!isReady) {
+          this.weaviateClient = null;
+        }
+      } catch (error) {
+        this.weaviateClient = null;
+      }
+    }
+
+    if (!this.weaviateClient) {
+      this.weaviateClient = await weaviate.connectToCustom({
+        httpHost: "127.0.0.1",
+        httpPort: 8099,
+        httpSecure: false,
+        grpcHost: "127.0.0.1",
+        grpcPort: 50051,
+        grpcSecure: false,
+        timeout: {
+          query: 60,
+          init: 30,
+        },
+      });
+    }
+
+    return this.weaviateClient;
+  }
+
+  async createSession(options) {
+    const { instructions, sessionId } = options;
+
+    try {
+      const messages = [
+        {
+          role: "system",
+          content: [{ type: "text", text: instructions }],
+        },
+      ];
+
+      this.threads[sessionId] = messages;
+
+      return {
+        assistantId: sessionId,
+        threadId: sessionId,
+      };
+    } catch (error) {
+      throw error;
+    }
   }
 
   async sendMessage(options) {
-    const { sessionId, message, sessionData } = options;
+    const { message, sessionData } = options;
+    const { threadId } = sessionData;
 
-    if (!sessionId) {
-      throw Errors.ollama.missingSessionId();
-    }
+    const client = await this.getWeaviateClient();
 
-    const state = new ProviderState(sessionData);
-    const systemInstruction = state.getSystemInstruction();
-
-    try {
-      const conversationMessages = await this.conversationStore.buildConversationForRequest(
-        sessionId,
-        systemInstruction,
-        message
-      );
-
-      const chatResponse = await this.createChatCompletion({
-        model: this.model,
-        messages: conversationMessages,
-      });
-
-      const responseMessage = this.extractAssistantMessage(chatResponse);
-
-      if (!responseMessage) {
-        throw Errors.ollama.noTextContent();
-      }
-
-      await this.conversationStore.storeAssistantResponse(sessionId, responseMessage);
-
-      state.update({
-        conversationKey: this.conversationStore.getConversationKey(sessionId),
-        model: this.model,
-      });
-
-      return {
-        message: responseMessage,
-        sessionData: state.buildSessionData(sessionId),
-      };
-    } catch (error) {
-      throw Errors.ollama.messageSendError(error);
-    }
-  }
-
-  /**
-   * Realiza la llamada al API de Ollama y devuelve la evaluación estructurada.
-   * Invocado por BaseModel.evaluateSolution.
-   * @param {string} prompt - Prompt de evaluación ya construido
-   * @returns {Promise<Object>} - { score, evaluation }
-   */
-  async generateEvaluationResponse(prompt) {
-    try {
-      const response = await this.createChatCompletion({
-        model: this.evaluationModel,
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are an expert evaluator. Your task is to evaluate solutions to problems and provide detailed feedback.',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        format: this.getEvaluationResponseFormat(),
-      });
-
-      const responseMessage = this.extractAssistantMessage(response);
-
-      if (!responseMessage) {
-        throw Errors.ollama.noEvaluationContent();
-      }
-
-      return JSON.parse(this.sanitizeJsonResponse(responseMessage));
-    } catch (error) {
-      throw Errors.ollama.evaluationError(error);
-    }
-  }
-
-  // Métodos auxiliares
-
-  async createChatCompletion({ model, messages, format }) {
-    const headers = {
-      'Content-Type': 'application/json',
-    };
-
-    const requestBody = {
-      model,
-      messages,
-      stream: false,
-    };
-
-    if (format) {
-      requestBody.format = format;
-    }
-
-    const response = await fetch(`${this.baseUrl}/api/chat`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(requestBody),
+    const collection = client.collections.get("TestWeaviate");
+    const searchResult = await collection.query.nearText(message, {
+      limit: 10,
+      alpha: 0.5,
+      returnProperties: ["texto", "origen"],
     });
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`Ollama request failed (${response.status}): ${errorBody}`);
+    let RAGcontext = "";
+    if (searchResult.objects && searchResult.objects.length > 0) {
+      RAGcontext = searchResult.objects
+        .map((obj, index) => {
+          return `\n--- Documento ${index + 1} (Origen: ${obj.properties.origen}) ---\n${obj.properties.texto}\n`;
+        })
+        .join("\n");
     }
 
-    const responseData = await response.json();
+    try {
+      if (!this.threads[threadId]) {
+        this.threads[threadId] = [];
+      }
 
-    if (responseData?.error) {
-      throw new Error(responseData.error);
+      this.threads[threadId].push({
+        role: "user",
+        content: message,
+      });
+
+      const ollamaMessages = this.threads[threadId].map((msg) => ({
+        role: msg.role,
+        content: Array.isArray(msg.content)
+          ? msg.content.map((c) => c.text || c).join("")
+          : msg.content,
+      }));
+
+      const lastMessageIndex = ollamaMessages.length - 1;
+
+      const promptPotenciado = `
+      Answer the user's question. If applicable, use the following context extracted from the database:
+      ${RAGcontext}
+
+      User's question: ${ollamaMessages[lastMessageIndex].content}
+      `;
+
+      ollamaMessages[lastMessageIndex].content = promptPotenciado;
+
+      const response = await ollama.chat({
+        model: "llama3.1:8b",
+        messages: ollamaMessages,
+      });
+
+      console.log(`El contenido extraido es: ${RAGcontext}`);
+
+      const messageContent = response.message.content;
+
+      this.threads[threadId].push({
+        role: "assistant",
+        content: messageContent,
+      });
+
+      return { message: messageContent };
+    } catch (error) {
+      throw error;
     }
-
-    return responseData;
   }
 
-  extractAssistantMessage(response) {
-    if (!response || typeof response !== 'object') {
-      return '';
+  async evaluateSolution(options) {
+    const { leiaMeta, result } = options;
+    const { solution, solutionFormat } = leiaMeta;
+
+    try {
+      const evaluationPrompt = `
+        Evaluate the following solution for a problem:
+
+        Expected solution:
+        ${solution}
+
+        Provided solution:
+        ${result}
+
+        The Format to compare is:
+        ${solutionFormat}
+
+        Evaluate the provided solution by comparing it with the expected solution.
+        Assign a score between 0 and 10, where:
+        - 10 means the solution is perfect
+        - 0 means the solution is completely incorrect
+        Provide a detailed evaluation in Markdown format.
+
+        Respond ONLY with a JSON object in the following format:
+        {
+          "score": [score between 0 and 10],
+          "evaluation": "[detailed evaluation in Markdown format]"
+        }`;
+
+      const response = await ollama.chat({
+        model: "llama3.1:8b",
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are an expert evaluator. Your task is to evaluate solutions to problems and provide detailed feedback.",
+          },
+          {
+            role: "user",
+            content: evaluationPrompt,
+          },
+        ],
+        format: "json",
+      });
+
+      const messageContent = response.message.content;
+      const evaluationResult = JSON.parse(messageContent);
+
+      return evaluationResult;
+    } catch (error) {
+      throw error;
     }
-
-    const content = response.message && typeof response.message.content === 'string'
-      ? response.message.content.trim()
-      : '';
-
-    return content;
-  }
-
-  getEvaluationResponseFormat() {
-    return {
-      type: 'object',
-      properties: {
-        score: {
-          type: 'number',
-          description: 'Score between 0 and 10',
-        },
-        evaluation: {
-          type: 'string',
-          description: 'Detailed evaluation in Markdown format',
-        },
-      },
-      required: ['score', 'evaluation'],
-    };
-  }
-
-  sanitizeJsonResponse(responseText) {
-    const trimmedResponse = responseText.trim();
-    const fencedMatch = trimmedResponse.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-
-    return fencedMatch ? fencedMatch[1].trim() : trimmedResponse;
   }
 }
 
-module.exports = OllamaProvider;
+module.exports = new OpenAIAssistantProvider();

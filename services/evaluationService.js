@@ -1,5 +1,6 @@
+const { OpenAI } = require("openai");
 const z = require("zod");
-const structuredGenerationService = require("./structuredGenerationService");
+const { zodResponseFormat } = require("openai/helpers/zod");
 
 const EvaluationSchema = z.object({
   score: z.number().min(0).max(10),
@@ -7,29 +8,13 @@ const EvaluationSchema = z.object({
   suggestions: z.array(z.string()),
 });
 
-const EvaluationResponseFormat = {
-  type: "object",
-  properties: {
-    score: {
-      type: "number",
-      description: "Numeric score between 0 and 10",
-    },
-    feedback: {
-      type: "string",
-      description: "Detailed evaluation feedback",
-    },
-    suggestions: {
-      type: "array",
-      items: {
-        type: "string",
-      },
-      description: "Concrete suggestions for improvement",
-    },
-  },
-  required: ["score", "feedback", "suggestions"],
-};
-
 class EvaluationService {
+  constructor() {
+    this.openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  }
+
   /**
    * Evalúa una solución de estudiante contra la solución esperada
    * @param {Object} leia - Objeto LEIA con la configuración del problema
@@ -51,22 +36,21 @@ class EvaluationService {
 
     const prompt = this.generatePrompt(result, expectedSolution, solutionFormat, evaluationPrompt)
 
-    return structuredGenerationService.generateObject({
-      systemPrompt:
-        "You are an expert evaluator. Evaluate student solutions against expected solutions.",
-      userPrompt: prompt,
-      zodSchema: EvaluationSchema,
-      schemaName: "evaluation",
-      openaiModel:
-        process.env.OPENAI_EVALUATION_MODEL ||
-        process.env.OPENAI_MODEL ||
-        "gpt-4.1-mini",
-      geminiModel:
-        process.env.GEMINI_EVALUATION_MODEL ||
-        process.env.GEMINI_MODEL ||
-        "gemini-3.1-flash-lite-preview",
-      geminiResponseFormat: EvaluationResponseFormat,
+    const response = await this.openai.beta.chat.completions.parse({
+      model: "gpt-4-turbo",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are an expert evaluator. Evaluate student solutions against expected solutions.",
+        },
+        { role: "user", content: prompt },
+      ],
+      response_format: zodResponseFormat(EvaluationSchema),
+      temperature: 0.7,
     });
+
+    return response.choices[0].message;
   }
 
   generatePrompt(studentSolution, exerciseSolution, format, evaluationPrompt) {
@@ -79,7 +63,7 @@ class EvaluationService {
       }
     }
 
-    return `Evaluate the following solution (${format} format):
+    return `Evaluate the following solution (${solutionFormat} format):
 
 Student's solution:
 ${studentSolution}

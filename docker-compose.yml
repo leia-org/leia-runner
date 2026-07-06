@@ -1,34 +1,22 @@
 services:
-  redis-runner:
-    restart: unless-stopped
-    image: redis:7-alpine
-    container_name: redis-runner
+  redis:
+    image: redis:alpine
+    container_name: redis-leia
     ports:
-      - '6379:6379'
-    volumes:
-      - redis-runner:/data
-
-  leia-runner:
-    restart: unless-stopped
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: leia-runner
+      - "6379:6379"
+  weaviate:
+    image: cr.weaviate.io/semitechnologies/weaviate:1.27.0
+    container_name: weaviate-leia
+    ports:
+      - "8099:8080"
+      - "50051:50051"
     environment:
-      - PORT=80
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - REDIS_URL=redis://redis-runner:6379
-      - DEFAULT_MODEL=${DEFAULT_MODEL}
-      - RUNNER_KEY=${RUNNER_KEY}
-      - INTERN_TOKEN=${INTERN_TOKEN}
-      - VITE_AUTH_SERVICE_BACKEND=${VITE_AUTH_SERVICE_BACKEND}
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+      ENABLE_MODULES: "text2vec-ollama"
+      DEFAULT_VECTORIZER_MODULE: "text2vec-ollama"
+      CLUSTER_HOSTNAME: "node1"
+      OLLAMA_API_ENDPOINT: "https://pgx.tailffa849.ts.net"
     extra_hosts:
-      - 'host.docker.internal:host-gateway'
-    depends_on:
-      - redis-runner
-    ports:
-      - '${PORT}:80'
-
-volumes:
-  redis-runner:
+      - "host.docker.internal:host-gateway"

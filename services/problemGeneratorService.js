@@ -1,5 +1,6 @@
+const { OpenAI } = require("openai");
 const z = require("zod");
-const structuredGenerationService = require("./structuredGenerationService");
+const { zodResponseFormat, zodTextFormat } = require("openai/helpers/zod");
 
 
 // Schema for generated problem
@@ -7,33 +8,17 @@ const ProblemSpecSchema = z.object({
     description: z.string().describe("A clear description of what the problem is about"),
     personaBackground: z.string().describe("Background context for the persona in this problem scenario"),
     details: z.string().describe("Extended details about the problem, including specific requirements"),
-    solution: z.string().describe("The expected solution in the specified format")
+    solution: z.string().describe("The expected solution in the specified format"),
 });
 
-const ProblemSpecResponseFormat = {
-    type: "object",
-    properties: {
-        description: {
-            type: "string",
-            description: "A clear description of what the problem is about",
-        },
-        personaBackground: {
-            type: "string",
-            description: "Background context for the persona in this problem scenario",
-        },
-        details: {
-            type: "string",
-            description: "Extended details about the problem, including specific requirements",
-        },
-        solution: {
-            type: "string",
-            description: "The expected solution in the specified format",
-        }
-    },
-    required: ["description", "personaBackground", "details", "solution"],
-};
-
 class ProblemGeneratorService {
+    constructor() {
+        const openai = new OpenAI({
+            apiKey: process.env.OPENAI_API_KEY,
+        });
+        this.client = openai;
+    }
+
     /**
      * Generates a new problem based on an example problem with a different subject
      * @param {Object} params - Generation parameters
@@ -83,31 +68,34 @@ ${additionalDetails ? `- Additional instructions: ${additionalDetails}` : ""}
 2. The DESCRIPTION should explain the context of the organization/scenario that needs a solution
 3. The PERSONA BACKGROUND should provide context about who the client/user is (role, experience, motivations) - use persona template tags like {{persona.fullName}} where appropriate
 4. The DETAILS should include specific requirements, constraints and expected features
-5. The SOLUTION must be complete and in ${exampleSpec.solutionFormat || "text"} format (if "mermaid", generate a valid UML class diagram) , without using special characters like 'ñ'
+5. The SOLUTION must be complete and in ${exampleSpec.solutionFormat || "text"} format (if "mermaid", generate a valid UML class diagram)
 6. Maintain the same level of complexity and detail as the example
 7. Content should be realistic and educational for students
 8. Use template tags ({{persona.*}}, {{behaviour.*}}) to make the content dynamic where it makes sense`;
 
-        const generatedSpec = await structuredGenerationService.generateObject({
-            systemPrompt: `You are an expert educator and content creator, specialized in generating realistic educational problems and scenarios.
+        const response = await this.client.responses.parse({
+            model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+            input: [
+                {
+                    role: "system",
+                    content: `You are an expert educator and content creator, specialized in generating realistic educational problems and scenarios.
 
 Your task is to generate problems that simulate real-world scenarios. The problems should be:
 - Realistic and based on real business/organizational domains
 - Complex enough for students to practice and learn
 - Clear about what the scenario or challenge is
-- With solutions that represent the expected outcome(in mermaid format if specified)
+- With solutions that represent the expected outcome (in mermaid format if specified)
 
 Always respond in the same language as the example problem provided.`,
-            userPrompt: prompt,
-            zodSchema: ProblemSpecSchema,
-            schemaName: "problem_spec",
-            openaiModel: process.env.OPENAI_MODEL || "gpt-5.4-mini",
-            geminiModel:
-                process.env.GEMINI_PROBLEM_MODEL ||
-                process.env.GEMINI_MODEL ||
-                "gemini-3.1-flash-lite-preview",
-            geminiResponseFormat: ProblemSpecResponseFormat,
+                },
+                { role: "user", content: prompt },
+            ],
+            text: {
+                format: zodTextFormat(ProblemSpecSchema, "problem_spec"),
+            }
         });
+
+        const generatedSpec = response.output_parsed;
 
         // Build the complete problem object
         return {
@@ -119,10 +107,10 @@ Always respond in the same language as the example problem provided.`,
             spec: {
                 ...generatedSpec,
                 solutionFormat: exampleSpec.solutionFormat || "text",
-                process: exampleSpec.process || "other",
-                extends:{},
-                overrides: {},
-                constrainedTo: {},
+                process: exampleSpec.process || [],
+                extends: exampleSpec.extends || {},
+                overrides: exampleSpec.overrides || {},
+                constrainedTo: exampleSpec.constrainedTo || {},
             },
         };
     }
