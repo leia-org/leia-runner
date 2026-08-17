@@ -4,9 +4,11 @@ const sessionService = require('./sessionService');
 const {
   buildAgentTurnPrompt,
   buildOrchestratorInstructions,
+  buildOrchestratorTools,
   buildRoutingPrompt,
   createVirtualGraph,
   normalizeMaxInternalTurns,
+  parseOrchestratorToolCall,
   parseRoutingDecision,
 } = require('./multiLeiaOrchestrator');
 
@@ -305,40 +307,26 @@ class MultiLeiaService {
     };
   }
 
-  async selectNextSpeaker(runtime, currentSpeakerId, generatedCount) {
-    const maxTurns = runtime.orchestration.maxInternalTurns;
-    if (generatedCount >= maxTurns) return 'participant';
-
+  async sendCoordinatorMessage(runtime, currentSpeakerId, generatedCount, toolResults) {
     const routerSessionId = runtime.orchestration.routerSessionId;
-    if (routerSessionId) {
-      try {
-        const response = await sessionService.sendMessage(
-          routerSessionId,
-          buildRoutingPrompt({
-            actors: runtime.actors,
-            events: runtime.transcript.slice(-MAX_CONTEXT_EVENTS),
-            currentSpeakerId,
-            generatedCount,
-            maxTurns,
-          })
-        );
-        const decision = parseRoutingDecision(
-          response,
-          runtime.actors,
-          currentSpeakerId
-        );
-        if (decision && (decision !== 'participant' || generatedCount > 0)) {
-          return decision;
-        }
-      } catch (error) {
-        console.warn(`MultiLEIA orchestrator fallback: ${error.message}`);
-      }
-    }
+    if (!routerSessionId) return null;
+    const tools = buildOrchestratorTools(runtime.actors);
+    const message = Array.isArray(toolResults)
+      ? ''
+      : buildRoutingPrompt({
+          actors: runtime.actors,
+          events: runtime.transcript.slice(-MAX_CONTEXT_EVENTS),
+          currentSpeakerId,
+          generatedCount,
+          maxTurns: runtime.orchestration.maxInternalTurns,
+        });
 
-    // Deterministic fallback keeps the chat usable if the private router is
-    // unavailable or an older runtime has no router session.
-    if (generatedCount > 0) return 'participant';
-    return runtime.actors[runtime.nextActorIndex]?.id || runtime.actors[0].id;
+    return sessionService.sendMessage(routerSessionId, message, {
+      tools,
+      toolResults,
+      internalTools: true,
+      parallelToolCalls: false,
+    });
   }
 
   async sendMessage(sessionId, message, turnId, options = {}) {
@@ -389,107 +377,293 @@ class MultiLeiaService {
       const generatedMessages = [];
       let currentSpeakerId = 'participant';
       let actor = null;
+      let coordinatorAvailable = Boolean(runtime.orchestration.routerSessionId);
+      let coordinatorResponse = null;
 
-      while (generatedMessages.length < runtime.orchestration.maxInternalTurns) {
-        const nextSpeakerId = await this.selectNextSpeaker(
-          runtime,
-          currentSpeakerId,
-          generatedMessages.length
-        );
-        if (nextSpeakerId === 'participant') break;
-
-        actor = runtime.actors.find((candidate) => candidate.id === nextSpeakerId);
-        if (!actor) {
-          throw createError(`Orchestrator selected unknown actor ${nextSpeakerId}`, 500);
+      if (coordinatorAvailable) {
+        try {
+          coordinatorResponse = await this.sendCoordinatorMessage(
+            runtime,
+            currentSpeakerId,
+            generatedMessages.length
+          );
+        } catch (error) {
+          console.warn(`MultiLEIA orchestrator fallback: ${error.message}`);
+          coordinatorAvailable = false;
         }
+      }
+
+      const generateActorMessage = async (selectedActor, instruction = '') => {
         if (typeof options.onRoute === 'function') {
           await options.onRoute({
-            nextActorId: actor.id,
-            nextActorName: actor.name,
+            nextActorId: selectedActor.id,
+            nextActorName: selectedActor.name,
             generatedCount: generatedMessages.length,
             maxTurns: runtime.orchestration.maxInternalTurns,
           });
         }
 
         const events = runtime.transcript
-          .filter((event) => event.sequence > (actor.cursor || 0))
+          .filter((event) => event.sequence > (selectedActor.cursor || 0))
           .slice(-MAX_CONTEXT_EVENTS);
         const prompt = buildAgentTurnPrompt({
-          actor,
+          actor: selectedActor,
           target: { id: 'group', name: 'the group' },
           events,
           sharedTask: runtime.orchestration.sharedTask,
           isLast: null,
+          instruction,
         });
 
-        try {
-          const response = await sessionService.sendMessage(actor.sessionId, prompt);
-          const responseText = readString(
-            typeof response === 'string' ? response : response?.message
+        const response = await sessionService.sendMessage(selectedActor.sessionId, prompt);
+        const responseText = readString(
+          typeof response === 'string' ? response : response?.message
+        );
+        if (!responseText) {
+          throw new Error(`Actor ${selectedActor.id} returned an empty response`);
+        }
+
+        const event = this.appendEvent(runtime, {
+          senderType: 'agent',
+          senderId: selectedActor.id,
+          senderName: selectedActor.name,
+          recipientIds: [
+            'participant',
+            ...runtime.actors
+              .filter((candidate) => candidate.id !== selectedActor.id)
+              .map((candidate) => candidate.id),
+          ],
+          text: responseText,
+          turnId,
+        });
+        selectedActor.cursor = event.sequence;
+        generatedMessages.push(event);
+        runtime.traversal.push({
+          sequence: event.sequence,
+          from: currentSpeakerId,
+          to: selectedActor.id,
+        });
+        runtime.traversal = runtime.traversal.slice(-MAX_STORED_EVENTS);
+        await this.saveRuntime(runtime);
+        if (typeof options.onMessage === 'function') {
+          await options.onMessage(event);
+        }
+        currentSpeakerId = selectedActor.id;
+        actor = selectedActor;
+        return event;
+      };
+
+      const finalizeActorFailure = async (failedActor, error) => {
+        if (generatedMessages.length === 0) {
+          runtime.transcript = runtime.transcript.filter(
+            (event) => event.turnId !== turnId
           );
-          if (!responseText) {
-            throw new Error(`Actor ${actor.id} returned an empty response`);
+          runtime.sequence = participantEvent.sequence - 1;
+          runtime.status = 'awaiting_user';
+          runtime.updatedAt = new Date().toISOString();
+          await this.saveRuntime(runtime);
+          throw error;
+        }
+        runtime.status = 'awaiting_user';
+        runtime.nextActorIndex = Math.max(
+          0,
+          runtime.actors.findIndex((candidate) => candidate.id === failedActor.id)
+        );
+        runtime.updatedAt = new Date().toISOString();
+        runtime.lastPartial = {
+          turnId,
+          actorId: failedActor.id,
+          actorName: failedActor.name,
+          timestamp: runtime.updatedAt,
+        };
+        runtime.processedTurns.push({ turnId, messages: generatedMessages });
+        runtime.processedTurns = runtime.processedTurns.slice(-MAX_PROCESSED_TURNS);
+        await this.saveRuntime(runtime);
+        return {
+          turnId,
+          messages: generatedMessages,
+          state: this.toPublicState(runtime),
+          partial: true,
+        };
+      };
+
+      const maxCoordinatorSteps = runtime.orchestration.maxInternalTurns + 8;
+      let coordinatorSteps = 0;
+      const failedActorIds = new Set();
+      let lastActorFailure = null;
+
+      while (coordinatorSteps < maxCoordinatorSteps) {
+        coordinatorSteps += 1;
+        const nativeCalls = Array.isArray(coordinatorResponse?.toolCalls)
+          ? coordinatorResponse.toolCalls
+          : [];
+
+        if (nativeCalls.length > 0) {
+          const toolResults = [];
+          let actorFailure = null;
+
+          for (const call of nativeCalls) {
+            const action = parseOrchestratorToolCall(call, runtime.actors);
+            const callId = action?.callId || call?.callId || call?.id;
+            if (!callId) continue;
+
+            if (!action) {
+              toolResults.push({
+                callId,
+                output: { status: 'rejected', reason: 'Unknown LEIA tool' },
+              });
+              continue;
+            }
+
+            if (actorFailure) {
+              toolResults.push({
+                callId: action.callId,
+                output: { status: 'skipped', reason: 'A previous LEIA failed' },
+              });
+              continue;
+            }
+            if (generatedMessages.length >= runtime.orchestration.maxInternalTurns) {
+              toolResults.push({
+                callId: action.callId,
+                output: { status: 'rejected', reason: 'Maximum public messages reached' },
+              });
+              continue;
+            }
+            if (!action.actorId || action.actorId === currentSpeakerId) {
+              toolResults.push({
+                callId: action.callId,
+                output: { status: 'rejected', reason: 'Invalid or repeated LEIA speaker' },
+              });
+              continue;
+            }
+            if (failedActorIds.has(action.actorId)) {
+              toolResults.push({
+                callId: action.callId,
+                output: { status: 'rejected', reason: 'This LEIA already failed in this round' },
+              });
+              continue;
+            }
+
+            const selectedActor = runtime.actors.find(
+              (candidate) => candidate.id === action.actorId
+            );
+            if (!selectedActor) {
+              toolResults.push({
+                callId: action.callId,
+                output: { status: 'rejected', reason: 'Unknown LEIA' },
+              });
+              continue;
+            }
+
+            try {
+              const event = await generateActorMessage(
+                selectedActor,
+                action.instruction
+              );
+              toolResults.push({
+                callId: action.callId,
+                output: {
+                  status: 'published',
+                  senderId: event.senderId,
+                  senderName: event.senderName,
+                  text: event.text,
+                  sequence: event.sequence,
+                },
+              });
+            } catch (error) {
+              actorFailure = { actor: selectedActor, error };
+              lastActorFailure = actorFailure;
+              failedActorIds.add(selectedActor.id);
+              toolResults.push({
+                callId: action.callId,
+                output: { status: 'error', reason: error.message },
+              });
+            }
           }
 
-          const event = this.appendEvent(runtime, {
-            senderType: 'agent',
-            senderId: actor.id,
-            senderName: actor.name,
-            recipientIds: [
-              'participant',
-              ...runtime.actors
-                .filter((candidate) => candidate.id !== actor.id)
-                .map((candidate) => candidate.id),
-            ],
-            text: responseText,
-            turnId,
-          });
-          actor.cursor = event.sequence;
-          generatedMessages.push(event);
-          runtime.traversal.push({
-            sequence: event.sequence,
-            from: currentSpeakerId,
-            to: actor.id,
-          });
-          runtime.traversal = runtime.traversal.slice(-MAX_STORED_EVENTS);
-          await this.saveRuntime(runtime);
-          if (typeof options.onMessage === 'function') {
-            await options.onMessage(event);
+          if (toolResults.length > 0 && coordinatorAvailable) {
+            try {
+              coordinatorResponse = await this.sendCoordinatorMessage(
+                runtime,
+                currentSpeakerId,
+                generatedMessages.length,
+                toolResults
+              );
+            } catch (error) {
+              console.warn(`MultiLEIA orchestrator continuation failed: ${error.message}`);
+              coordinatorAvailable = false;
+              coordinatorResponse = null;
+            }
+          } else {
+            coordinatorResponse = null;
           }
-          currentSpeakerId = actor.id;
-        } catch (error) {
-          if (generatedMessages.length === 0) {
-            runtime.transcript = runtime.transcript.filter(
-              (event) => event.turnId !== turnId
-            );
-            runtime.sequence = participantEvent.sequence - 1;
-            runtime.status = 'awaiting_user';
-            runtime.updatedAt = new Date().toISOString();
-            await this.saveRuntime(runtime);
-            throw error;
+
+          if (
+            generatedMessages.length >= runtime.orchestration.maxInternalTurns &&
+            !Array.isArray(coordinatorResponse?.toolCalls)
+          ) {
+            break;
           }
-          runtime.status = 'awaiting_user';
-          runtime.nextActorIndex = Math.max(
-            0,
-            runtime.actors.findIndex((candidate) => candidate.id === actor.id)
-          );
-          runtime.updatedAt = new Date().toISOString();
-          runtime.lastPartial = {
-            turnId,
-            actorId: actor.id,
-            actorName: actor.name,
-            timestamp: runtime.updatedAt,
-          };
-          runtime.processedTurns.push({ turnId, messages: generatedMessages });
-          runtime.processedTurns = runtime.processedTurns.slice(-MAX_PROCESSED_TURNS);
-          await this.saveRuntime(runtime);
-          return {
-            turnId,
-            messages: generatedMessages,
-            state: this.toPublicState(runtime),
-            partial: true,
-          };
+          continue;
         }
+
+        if (generatedMessages.length >= runtime.orchestration.maxInternalTurns) break;
+
+        let nextSpeakerId = parseRoutingDecision(
+          coordinatorResponse,
+          runtime.actors,
+          currentSpeakerId
+        );
+        if (nextSpeakerId === 'participant' && generatedMessages.length > 0) break;
+        if (!nextSpeakerId || nextSpeakerId === 'participant') {
+          if (generatedMessages.length > 0) break;
+          const fallbackActors = [
+            runtime.actors[runtime.nextActorIndex],
+            ...runtime.actors,
+          ].filter(Boolean);
+          nextSpeakerId = fallbackActors.find(
+            (candidate) => !failedActorIds.has(candidate.id)
+          )?.id;
+          if (!nextSpeakerId) {
+            if (lastActorFailure) {
+              return finalizeActorFailure(
+                lastActorFailure.actor,
+                lastActorFailure.error
+              );
+            }
+            break;
+          }
+        }
+
+        const selectedActor = runtime.actors.find(
+          (candidate) => candidate.id === nextSpeakerId
+        );
+        if (!selectedActor) {
+          throw createError(`Orchestrator selected unknown actor ${nextSpeakerId}`, 500);
+        }
+
+        try {
+          await generateActorMessage(selectedActor);
+        } catch (error) {
+          return finalizeActorFailure(selectedActor, error);
+        }
+
+        if (!coordinatorAvailable) break;
+        try {
+          coordinatorResponse = await this.sendCoordinatorMessage(
+            runtime,
+            currentSpeakerId,
+            generatedMessages.length
+          );
+        } catch (error) {
+          console.warn(`MultiLEIA orchestrator fallback: ${error.message}`);
+          coordinatorAvailable = false;
+          coordinatorResponse = null;
+        }
+      }
+
+      if (generatedMessages.length === 0 && lastActorFailure) {
+        return finalizeActorFailure(lastActorFailure.actor, lastActorFailure.error);
       }
 
       runtime.status = 'awaiting_user';

@@ -31,7 +31,15 @@ class OpenAIResponsesProvider extends BaseModel {
     }
 
     async sendMessage(options) {
-        const { message, sessionData, tools, toolResults, allowTools } = options;
+        const {
+            message,
+            sessionData,
+            tools,
+            toolResults,
+            allowTools,
+            internalTools,
+            parallelToolCalls,
+        } = options;
         const state = new ProviderState(sessionData);
         const baseInstruction = state.getSystemInstruction();
         let conversationId = state.get('conversationId') || (state.threadId.startsWith('conv_') ? state.threadId : '');
@@ -76,7 +84,7 @@ class OpenAIResponsesProvider extends BaseModel {
             // to call it. The augmented text is NOT persisted into state
             // — we keep the base instruction stored and re-augment each
             // turn based on the current tool set.
-            const instructionsForCall = normalizedTools
+            const instructionsForCall = normalizedTools && !internalTools
                 ? this.appendToolUsageBlock(baseInstruction, normalizedTools)
                 : baseInstruction;
 
@@ -90,6 +98,9 @@ class OpenAIResponsesProvider extends BaseModel {
 
             if (normalizedTools) {
                 requestPayload.tools = normalizedTools;
+                if (typeof parallelToolCalls === 'boolean') {
+                    requestPayload.parallel_tool_calls = parallelToolCalls;
+                }
             }
 
             const response = await this.getClient().responses.create(requestPayload);

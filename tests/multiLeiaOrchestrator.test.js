@@ -1,12 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
+const OpenAIResponsesProvider = require('../models/providers/openai-responses');
 const {
   buildAgentTurnPrompt,
+  buildOrchestratorInstructions,
+  buildOrchestratorTools,
   buildRoutingPrompt,
   createVirtualGraph,
   normalizeMaxInternalTurns,
+  parseOrchestratorToolCall,
   parseRoutingDecision,
   planTurn,
 } = require('../services/multiLeiaOrchestrator');
@@ -103,5 +107,77 @@ describe('MultiLEIA virtual graph', () => {
 
     expect(prompt).toContain('Maximum public LEIA messages this round: 5');
     expect(prompt).toContain('Eligible LEIAs: customer');
+  });
+
+  it('exposes one speaking tool per LEIA and resolves calls back to actors', () => {
+    const tools = buildOrchestratorTools(actors);
+    const action = parseOrchestratorToolCall(
+      {
+        callId: 'call-2',
+        name: 'speak_as_leia_2',
+        arguments: '{"instruction":"Introduce yourself"}',
+      },
+      actors
+    );
+
+    expect(tools.map((tool) => tool.name)).toEqual([
+      'speak_as_leia_1',
+      'speak_as_leia_2',
+      'speak_as_leia_3',
+    ]);
+    expect(action).toEqual({
+      actorId: 'analyst',
+      instruction: 'Introduce yourself',
+      callId: 'call-2',
+      toolName: 'speak_as_leia_2',
+    });
+    expect(buildOrchestratorInstructions(actors, 'Task')).toContain(
+      'asks who the LEIAs are'
+    );
+  });
+
+  it('runs coordinator tools sequentially through the OpenAI Responses provider', async () => {
+    const provider = new OpenAIResponsesProvider();
+    const create = vi.fn().mockResolvedValue({
+      id: 'response-1',
+      output: [
+        {
+          type: 'function_call',
+          call_id: 'call-1',
+          name: 'speak_as_leia_1',
+          arguments: '{"instruction":"Introduce yourself"}',
+        },
+      ],
+    });
+    provider.setApiKey('test-key');
+    provider._client = { responses: { create } };
+
+    const response = await provider.sendMessage({
+      message: 'Coordinate the group',
+      sessionData: {
+        threadId: 'conv_test',
+        providerState: { systemInstruction: 'Private coordinator instructions' },
+      },
+      tools: buildOrchestratorTools(actors),
+      allowTools: true,
+      internalTools: true,
+      parallelToolCalls: false,
+    });
+
+    expect(response.toolCalls).toEqual([
+      expect.objectContaining({
+        callId: 'call-1',
+        name: 'speak_as_leia_1',
+      }),
+    ]);
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instructions: 'Private coordinator instructions',
+        parallel_tool_calls: false,
+        tools: expect.arrayContaining([
+          expect.objectContaining({ name: 'speak_as_leia_1' }),
+        ]),
+      })
+    );
   });
 });

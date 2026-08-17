@@ -24,20 +24,21 @@ Every actor keeps its own persona and behaviour. The actor's original problem is
 
 ## Runtime graph
 
-Runner builds an implicit graph with the participant, every LEIA actor and an end node. The graph is not persisted as authored edges. A private orchestrator session selects the next graph node before every public LEIA message:
+Runner builds an implicit graph with the participant, every LEIA actor and an end node. The graph is not persisted as authored edges. A private coordinator session receives one `speak_as_leia_N` function tool per actor and manages a complete participant round:
 
-1. It can select any LEIA except the actor that just spoke.
-2. It selects another LEIA only when that role materially adds to the exchange.
-3. It selects the participant when the latest answer is sufficient or participant input is required.
-4. The configured maximum always stops the round even if the router would continue.
+1. It calls one LEIA tool and observes that actor's public message.
+2. It can then call another LEIA tool, so every later decision includes what the previous actor said.
+3. A question addressed to the whole group gives every relevant LEIA a separate message, while a direct question can be answered by only one.
+4. It returns `WAIT_FOR_PARTICIPANT` when the group needs participant input.
+5. The configured maximum always stops the round even if the coordinator would continue.
 
-A round can therefore contain one to eight public LEIA messages. Actors may speak again later in the same round, so the maximum can be greater than the number of configured LEIAs. Invalid router output falls back to a deterministic opening actor and returns control after its response.
+A round can therefore contain one to eight public LEIA messages. Actors may speak again later in the same round, so the maximum can be greater than the number of configured LEIAs. Providers without native function tools use the same one-tool-at-a-time protocol through structured JSON. Invalid coordinator output falls back to the preferred opening actor and returns control after its response.
 
 Runner exposes the traversal as one SSE response. It emits `route` before an actor starts, `message` after each public response, and `complete` when control returns to the participant. Workbench persists every message before forwarding it through its own SSE stream to the browser.
 
 ## Shared memory and isolation
 
-Every actor has an isolated provider session. Runner also keeps one ordered public transcript with labeled senders. Before an actor speaks, it receives only the public events added since its own cursor. Its provider session preserves its private conversation state, while the labeled transcript gives it the messages produced by the participant and the other LEIAs.
+Every actor has an isolated provider session. The private coordinator also has a persistent provider session, including its tool calls and results. Runner keeps one ordered public transcript with labeled senders. Before an actor speaks, it receives only the public events added since its own cursor. Its provider session preserves its private conversation state, while the labeled transcript gives it the messages produced by the participant and the other LEIAs.
 
 The persisted public event fields are `sequence`, `senderType`, `senderId`, `senderName`, `recipientIds`, `text`, `turnId` and `timestamp`.
 
@@ -46,8 +47,8 @@ The persisted public event fields are `sequence`, `senderType`, `senderId`, `sen
 - Text mode only.
 - At least two LEIAs.
 - One shared problem per activity.
-- No function-tool continuation inside a MultiLEIA turn.
+- Participant-facing widget tools are not supported inside a MultiLEIA turn; the coordinator's private speaking tools are internal Runner tools.
 - One traversal at a time per session, protected by a Redis lock.
 - A `turnId` acts as an idempotency key for completed Runner turns.
 
-If an actor fails after earlier actors have already answered, Runner returns those saved messages with `partial: true`, records the failed actor in `state.lastPartial`, and makes that actor the preferred fallback node of the next traversal. A fully successful traversal clears the partial state.
+When a natively orchestrated actor tool fails, the coordinator receives an error result and can select a different LEIA. If a fallback traversal cannot recover after earlier public messages were produced, Runner returns those saved messages with `partial: true`. A fully successful traversal clears the partial state.

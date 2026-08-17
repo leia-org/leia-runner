@@ -4,7 +4,20 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const multiLeiaService = require('../services/multiLeiaService');
 const sessionService = require('../services/sessionService');
+const modelManager = require('../models/modelManager');
 const { redisClient } = require('../config/redis');
+
+function orchestratorToolCall(index, callId, instruction) {
+  return {
+    toolCalls: [
+      {
+        callId,
+        name: `speak_as_leia_${index}`,
+        arguments: JSON.stringify({ instruction }),
+      },
+    ],
+  };
+}
 
 function createRuntime(maxInternalTurns = 2) {
   return {
@@ -107,13 +120,13 @@ describe('MultiLEIA partial traversal recovery', () => {
     vi.spyOn(multiLeiaService, 'getRuntime').mockResolvedValue(runtime);
     vi.spyOn(multiLeiaService, 'saveRuntime').mockImplementation(async (value) => value);
     vi.spyOn(sessionService, 'sendMessage')
-      .mockResolvedValueOnce({ message: '{"nextSpeakerId":"actor-a"}' })
+      .mockResolvedValueOnce(orchestratorToolCall(1, 'call-a1', 'Open the discussion'))
       .mockResolvedValueOnce({ message: 'Actor A opens' })
-      .mockResolvedValueOnce({ message: '{"nextSpeakerId":"actor-b"}' })
+      .mockResolvedValueOnce(orchestratorToolCall(2, 'call-b1', 'Respond to Actor A'))
       .mockResolvedValueOnce({ message: 'Actor B responds' })
-      .mockResolvedValueOnce({ message: '{"nextSpeakerId":"actor-a"}' })
+      .mockResolvedValueOnce(orchestratorToolCall(1, 'call-a2', 'Follow up'))
       .mockResolvedValueOnce({ message: 'Actor A follows up' })
-      .mockResolvedValueOnce({ message: '{"nextSpeakerId":"participant"}' });
+      .mockResolvedValueOnce({ message: 'WAIT_FOR_PARTICIPANT' });
     const onRoute = vi.fn();
     const onMessage = vi.fn();
 
@@ -144,6 +157,24 @@ describe('MultiLEIA partial traversal recovery', () => {
       'actor-a',
     ]);
     expect(runtime.status).toBe('awaiting_user');
+    expect(sessionService.sendMessage).toHaveBeenNthCalledWith(
+      3,
+      'session-1:orchestrator',
+      '',
+      expect.objectContaining({
+        internalTools: true,
+        parallelToolCalls: false,
+        toolResults: [
+          expect.objectContaining({
+            callId: 'call-a1',
+            output: expect.objectContaining({
+              status: 'published',
+              senderId: 'actor-a',
+            }),
+          }),
+        ],
+      })
+    );
   });
 
   it('stops after one LEIA when the orchestrator returns control to the participant', async () => {
@@ -161,9 +192,9 @@ describe('MultiLEIA partial traversal recovery', () => {
     vi.spyOn(multiLeiaService, 'getRuntime').mockResolvedValue(runtime);
     vi.spyOn(multiLeiaService, 'saveRuntime').mockImplementation(async (value) => value);
     vi.spyOn(sessionService, 'sendMessage')
-      .mockResolvedValueOnce({ message: '{"nextSpeakerId":"actor-b"}' })
+      .mockResolvedValueOnce(orchestratorToolCall(2, 'call-b1', 'Answer the greeting'))
       .mockResolvedValueOnce({ message: 'Hello, how can I help?' })
-      .mockResolvedValueOnce({ message: '{"nextSpeakerId":"participant"}' });
+      .mockResolvedValueOnce({ message: 'WAIT_FOR_PARTICIPANT' });
 
     const result = await multiLeiaService.sendMessage(
       runtime.sessionId,
@@ -180,5 +211,122 @@ describe('MultiLEIA partial traversal recovery', () => {
       'participant',
       'actor-b',
     ]);
+  });
+
+  it('streams a separate introduction from every LEIA addressed by a group question', async () => {
+    const runtime = createRuntime(6);
+    let lockToken = null;
+
+    vi.spyOn(redisClient, 'set').mockImplementation(async (key, value) => {
+      if (key.startsWith('multi-leia:lock:')) lockToken = value;
+      return 'OK';
+    });
+    vi.spyOn(redisClient, 'get').mockImplementation(async (key) =>
+      key.startsWith('multi-leia:lock:') ? lockToken : null
+    );
+    vi.spyOn(redisClient, 'del').mockResolvedValue(1);
+    vi.spyOn(multiLeiaService, 'getRuntime').mockResolvedValue(runtime);
+    vi.spyOn(multiLeiaService, 'saveRuntime').mockImplementation(async (value) => value);
+    vi.spyOn(sessionService, 'sendMessage')
+      .mockResolvedValueOnce(orchestratorToolCall(1, 'intro-a', 'Introduce yourself'))
+      .mockResolvedValueOnce({ message: 'I am Actor A.' })
+      .mockResolvedValueOnce(orchestratorToolCall(2, 'intro-b', 'Introduce yourself too'))
+      .mockResolvedValueOnce({ message: 'I am Actor B.' })
+      .mockResolvedValueOnce({ message: 'WAIT_FOR_PARTICIPANT' });
+    const onMessage = vi.fn();
+
+    const result = await multiLeiaService.sendMessage(
+      runtime.sessionId,
+      'Who are you?',
+      'turn-introductions',
+      { onMessage }
+    );
+
+    expect(result.messages.map((message) => message.text)).toEqual([
+      'I am Actor A.',
+      'I am Actor B.',
+    ]);
+    expect(onMessage.mock.calls.map(([message]) => message.senderId)).toEqual([
+      'actor-a',
+      'actor-b',
+    ]);
+  });
+
+  it('enables trusted coordinator tools without activity widgets', async () => {
+    const providerSendMessage = vi.fn().mockResolvedValue({ message: 'done' });
+    vi.spyOn(sessionService, 'getSession').mockResolvedValue({
+      provider: 'openai-responses',
+      modelName: 'gpt-5.4-mini',
+      apiKeyId: 'key-id',
+      apiKeyRequesterId: 'requester-id',
+      threadId: '',
+    });
+    vi.spyOn(sessionService, 'getLeiaMeta').mockResolvedValue(null);
+    vi.spyOn(modelManager, 'getModel').mockResolvedValue({
+      sendMessage: providerSendMessage,
+    });
+
+    await sessionService.sendMessage('session-1:orchestrator', 'Coordinate', {
+      tools: [{ name: 'speak_as_leia_1', parameters: { type: 'object' } }],
+      internalTools: true,
+      parallelToolCalls: false,
+    });
+
+    expect(providerSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allowTools: true,
+        internalTools: true,
+        parallelToolCalls: false,
+        tools: [expect.objectContaining({ name: 'speak_as_leia_1' })],
+      })
+    );
+  });
+
+  it('lets the coordinator recover by calling another LEIA when one tool fails', async () => {
+    const runtime = createRuntime(2);
+    let lockToken = null;
+
+    vi.spyOn(redisClient, 'set').mockImplementation(async (key, value) => {
+      if (key.startsWith('multi-leia:lock:')) lockToken = value;
+      return 'OK';
+    });
+    vi.spyOn(redisClient, 'get').mockImplementation(async (key) =>
+      key.startsWith('multi-leia:lock:') ? lockToken : null
+    );
+    vi.spyOn(redisClient, 'del').mockResolvedValue(1);
+    vi.spyOn(multiLeiaService, 'getRuntime').mockResolvedValue(runtime);
+    vi.spyOn(multiLeiaService, 'saveRuntime').mockImplementation(async (value) => value);
+    vi.spyOn(sessionService, 'sendMessage')
+      .mockResolvedValueOnce(orchestratorToolCall(1, 'failed-a', 'Answer first'))
+      .mockRejectedValueOnce(new Error('Actor A unavailable'))
+      .mockResolvedValueOnce(orchestratorToolCall(2, 'recover-b', 'Answer instead'))
+      .mockResolvedValueOnce({ message: 'Actor B recovered the conversation' })
+      .mockResolvedValueOnce({ message: 'WAIT_FOR_PARTICIPANT' });
+
+    const result = await multiLeiaService.sendMessage(
+      runtime.sessionId,
+      'Can somebody help?',
+      'turn-recovery'
+    );
+
+    expect(result.partial).toBeUndefined();
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0]).toMatchObject({
+      senderId: 'actor-b',
+      text: 'Actor B recovered the conversation',
+    });
+    expect(sessionService.sendMessage).toHaveBeenNthCalledWith(
+      3,
+      'session-1:orchestrator',
+      '',
+      expect.objectContaining({
+        toolResults: [
+          expect.objectContaining({
+            callId: 'failed-a',
+            output: expect.objectContaining({ status: 'error' }),
+          }),
+        ],
+      })
+    );
   });
 });
