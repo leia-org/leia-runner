@@ -351,7 +351,8 @@ class MultiLeiaService {
     currentSpeakerId,
     generatedCount,
     toolResults,
-    turnPlan
+    turnPlan,
+    toolChoice
   ) {
     const routerSessionId = runtime.orchestration.routerSessionId;
     if (!routerSessionId) return null;
@@ -372,6 +373,7 @@ class MultiLeiaService {
       toolResults,
       internalTools: true,
       parallelToolCalls: false,
+      toolChoice,
     });
   }
 
@@ -471,7 +473,17 @@ class MultiLeiaService {
                   },
                 }]
               : undefined,
-            turnPlan
+            turnPlan,
+            nativePlanningCall?.callId
+              ? {
+                  type: 'function',
+                  name: `speak_as_leia_${
+                    runtime.actors.findIndex(
+                      (candidate) => candidate.id === turnPlan.openingActorId
+                    ) + 1
+                  }`,
+                }
+              : undefined
           );
         } catch (error) {
           console.warn(`MultiLEIA orchestrator fallback: ${error.message}`);
@@ -824,7 +836,11 @@ class MultiLeiaService {
           continue;
         }
         if (!nextSpeakerId || nextSpeakerId === 'participant') {
-          if (generatedMessages.length > 0) break;
+          if (generatedMessages.length > 0) {
+            const continued = await continueIncompletePlan();
+            if (continued) continue;
+            break;
+          }
           const fallbackActors = [
             runtime.actors.find(
               (candidate) => candidate.id === turnPlan?.openingActorId
@@ -866,7 +882,11 @@ class MultiLeiaService {
           return finalizeActorFailure(selectedActor, error);
         }
 
-        if (!coordinatorAvailable) break;
+        if (!coordinatorAvailable) {
+          const continued = await continueIncompletePlan();
+          if (continued) continue;
+          break;
+        }
         try {
           coordinatorResponse = await this.sendCoordinatorMessage(
             runtime,

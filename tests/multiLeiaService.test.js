@@ -300,6 +300,14 @@ describe('MultiLEIA partial traversal recovery', () => {
       'actor-a',
       'actor-b',
     ]);
+    expect(sessionService.sendMessage).toHaveBeenNthCalledWith(
+      1,
+      'session-1:orchestrator',
+      '',
+      expect.objectContaining({
+        toolChoice: { type: 'function', name: 'speak_as_leia_1' },
+      })
+    );
   });
 
   it('completes the semantic LLM plan when the coordinator tries to stop early', async () => {
@@ -348,6 +356,44 @@ describe('MultiLEIA partial traversal recovery', () => {
       'session-1:actor:actor-b',
       expect.stringContaining('React directly to what Actor A just said')
     );
+  });
+
+  it('executes the accepted LLM plan when its tool-call continuation fails', async () => {
+    const runtime = createRuntime(2);
+    let lockToken = null;
+
+    mockTurnPlan({
+      mode: 'multiple_perspectives',
+      minimumMessages: 2,
+      requiredActorIds: ['actor-a', 'actor-b'],
+      rationale: 'Both group members should identify themselves.',
+    });
+    vi.spyOn(redisClient, 'set').mockImplementation(async (key, value) => {
+      if (key.startsWith('multi-leia:lock:')) lockToken = value;
+      return 'OK';
+    });
+    vi.spyOn(redisClient, 'get').mockImplementation(async (key) =>
+      key.startsWith('multi-leia:lock:') ? lockToken : null
+    );
+    vi.spyOn(redisClient, 'del').mockResolvedValue(1);
+    vi.spyOn(multiLeiaService, 'getRuntime').mockResolvedValue(runtime);
+    vi.spyOn(multiLeiaService, 'saveRuntime').mockImplementation(async (value) => value);
+    vi.spyOn(sessionService, 'sendMessage')
+      .mockRejectedValueOnce(new Error('Empty coordinator continuation'))
+      .mockResolvedValueOnce({ message: 'I am Actor A.' })
+      .mockResolvedValueOnce({ message: 'And I am Actor B.' });
+
+    const result = await multiLeiaService.sendMessage(
+      runtime.sessionId,
+      'Who is here?',
+      'turn-plan-fallback'
+    );
+
+    expect(result.messages.map((event) => event.senderId)).toEqual([
+      'actor-a',
+      'actor-b',
+    ]);
+    expect(result.messages[1]).toMatchObject({ addressedToId: 'actor-a' });
   });
 
   it('enables trusted coordinator tools without activity widgets', async () => {
