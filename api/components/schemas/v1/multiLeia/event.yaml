@@ -24,6 +24,11 @@ properties:
     type: array
     items:
       type: string
+  addressedToId:
+    type: string
+    description: Primary addressee selected by the private coordinator.
+  addressedToName:
+    type: string
   text:
     type: string
   turnId:

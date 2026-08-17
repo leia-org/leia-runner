@@ -10,6 +10,7 @@ const {
   normalizeMaxInternalTurns,
   parseOrchestratorToolCall,
   parseRoutingDecision,
+  parseVirtualOrchestratorCall,
 } = require('./multiLeiaOrchestrator');
 
 const MAX_CONTEXT_EVENTS = 40;
@@ -36,6 +37,19 @@ function buildSharedTask(leia) {
     .map(readString)
     .filter(Boolean)
     .join('\n\n');
+}
+
+function buildCoordinationBrief(leia) {
+  const persona = leia?.spec?.persona?.spec || {};
+  const behaviour = leia?.spec?.behaviour?.spec || {};
+  return [
+    readString(behaviour.role) ? `Role: ${readString(behaviour.role)}` : '',
+    readString(persona.description) ? `Persona: ${readString(persona.description)}` : '',
+    readString(persona.personality) ? `Style: ${readString(persona.personality)}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .slice(0, 800);
 }
 
 function normalizeProcess(process) {
@@ -145,6 +159,7 @@ class MultiLeiaService {
         id,
         name: readString(input.name) || getActorName(input.leia, `LEIA ${index + 1}`),
         role: readString(input.leia?.spec?.behaviour?.spec?.role),
+        coordinationBrief: buildCoordinationBrief(input.leia),
         leia: input.leia,
         runnerConfiguration: input.runnerConfiguration,
       };
@@ -296,7 +311,7 @@ class MultiLeiaService {
     return {
       sessionId: runtime.sessionId,
       status: runtime.status,
-      actors: runtime.actors.map(({ sessionId, cursor, ...actor }) => actor),
+      actors: runtime.actors.map(({ id, name, role }) => ({ id, name, role })),
       graph: runtime.graph,
       maxInternalTurns: runtime.orchestration.maxInternalTurns,
       openingActorId: runtime.orchestration.openingActorId,
@@ -393,11 +408,21 @@ class MultiLeiaService {
         }
       }
 
-      const generateActorMessage = async (selectedActor, instruction = '') => {
+      const generateActorMessage = async (
+        selectedActor,
+        instruction = '',
+        targetId = 'participant'
+      ) => {
+        const target = targetId === 'participant'
+          ? { id: 'participant', name: 'the participant' }
+          : runtime.actors.find((candidate) => candidate.id === targetId);
+        const effectiveTarget = target || { id: 'participant', name: 'the participant' };
         if (typeof options.onRoute === 'function') {
           await options.onRoute({
             nextActorId: selectedActor.id,
             nextActorName: selectedActor.name,
+            targetId: effectiveTarget.id,
+            targetName: effectiveTarget.name,
             generatedCount: generatedMessages.length,
             maxTurns: runtime.orchestration.maxInternalTurns,
           });
@@ -408,7 +433,7 @@ class MultiLeiaService {
           .slice(-MAX_CONTEXT_EVENTS);
         const prompt = buildAgentTurnPrompt({
           actor: selectedActor,
-          target: { id: 'group', name: 'the group' },
+          target: effectiveTarget,
           events,
           sharedTask: runtime.orchestration.sharedTask,
           isLast: null,
@@ -434,6 +459,11 @@ class MultiLeiaService {
               .map((candidate) => candidate.id),
           ],
           text: responseText,
+          addressedToId: effectiveTarget.id,
+          addressedToName:
+            effectiveTarget.id === 'participant'
+              ? 'Participant'
+              : effectiveTarget.name,
           turnId,
         });
         selectedActor.cursor = event.sequence;
@@ -442,6 +472,7 @@ class MultiLeiaService {
           sequence: event.sequence,
           from: currentSpeakerId,
           to: selectedActor.id,
+          addressedTo: effectiveTarget.id,
         });
         runtime.traversal = runtime.traversal.slice(-MAX_STORED_EVENTS);
         await this.saveRuntime(runtime);
@@ -558,7 +589,8 @@ class MultiLeiaService {
             try {
               const event = await generateActorMessage(
                 selectedActor,
-                action.instruction
+                action.instruction,
+                action.targetId
               );
               toolResults.push({
                 callId: action.callId,
@@ -568,6 +600,8 @@ class MultiLeiaService {
                   senderName: event.senderName,
                   text: event.text,
                   sequence: event.sequence,
+                  addressedToId: event.addressedToId,
+                  addressedToName: event.addressedToName,
                 },
               });
             } catch (error) {
@@ -609,7 +643,12 @@ class MultiLeiaService {
 
         if (generatedMessages.length >= runtime.orchestration.maxInternalTurns) break;
 
-        let nextSpeakerId = parseRoutingDecision(
+        const virtualAction = parseVirtualOrchestratorCall(
+          coordinatorResponse,
+          runtime.actors,
+          currentSpeakerId
+        );
+        let nextSpeakerId = virtualAction?.actorId || parseRoutingDecision(
           coordinatorResponse,
           runtime.actors,
           currentSpeakerId
@@ -643,7 +682,11 @@ class MultiLeiaService {
         }
 
         try {
-          await generateActorMessage(selectedActor);
+          await generateActorMessage(
+            selectedActor,
+            virtualAction?.instruction,
+            virtualAction?.targetId
+          );
         } catch (error) {
           return finalizeActorFailure(selectedActor, error);
         }

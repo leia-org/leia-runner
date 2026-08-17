@@ -26,11 +26,12 @@ Every actor keeps its own persona and behaviour. The actor's original problem is
 
 Runner builds an implicit graph with the participant, every LEIA actor and an end node. The graph is not persisted as authored edges. A private coordinator session receives one `speak_as_leia_N` function tool per actor and manages a complete participant round:
 
-1. It calls one LEIA tool and observes that actor's public message.
+1. It calls one LEIA tool with both a primary addressee and a private conversational instruction, then observes that actor's public message.
 2. It can then call another LEIA tool, so every later decision includes what the previous actor said.
-3. A question addressed to the whole group gives every relevant LEIA a separate message, while a direct question can be answered by only one.
-4. It returns `WAIT_FOR_PARTICIPANT` when the group needs participant input.
-5. The configured maximum always stops the round even if the coordinator would continue.
+3. Agent-to-agent calls are labeled in the transcript, allowing the next LEIA to answer, challenge or build directly on the previous contribution instead of independently answering the participant.
+4. A question addressed to the whole group gives every relevant LEIA a separate message, while a direct question can be answered by only one. A plain greeting receives exactly one short response.
+5. It returns `WAIT_FOR_PARTICIPANT` when the group needs participant input.
+6. The configured maximum always stops the round even if the coordinator would continue.
 
 A round can therefore contain one to eight public LEIA messages. Actors may speak again later in the same round, so the maximum can be greater than the number of configured LEIAs. Providers without native function tools use the same one-tool-at-a-time protocol through structured JSON. Invalid coordinator output falls back to the preferred opening actor and returns control after its response.
 
@@ -40,7 +41,7 @@ Runner exposes the traversal as one SSE response. It emits `route` before an act
 
 Every actor has an isolated provider session. The private coordinator also has a persistent provider session, including its tool calls and results. Runner keeps one ordered public transcript with labeled senders. Before an actor speaks, it receives only the public events added since its own cursor. Its provider session preserves its private conversation state, while the labeled transcript gives it the messages produced by the participant and the other LEIAs.
 
-The persisted public event fields are `sequence`, `senderType`, `senderId`, `senderName`, `recipientIds`, `text`, `turnId` and `timestamp`.
+The persisted public event fields are `sequence`, `senderType`, `senderId`, `senderName`, `recipientIds`, `addressedToId`, `addressedToName`, `text`, `turnId` and `timestamp`.
 
 ## Current constraints
 

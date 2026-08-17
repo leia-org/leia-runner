@@ -7,13 +7,13 @@ const sessionService = require('../services/sessionService');
 const modelManager = require('../models/modelManager');
 const { redisClient } = require('../config/redis');
 
-function orchestratorToolCall(index, callId, instruction) {
+function orchestratorToolCall(index, callId, instruction, targetId = 'participant') {
   return {
     toolCalls: [
       {
         callId,
         name: `speak_as_leia_${index}`,
-        arguments: JSON.stringify({ instruction }),
+        arguments: JSON.stringify({ targetId, instruction }),
       },
     ],
   };
@@ -122,9 +122,13 @@ describe('MultiLEIA partial traversal recovery', () => {
     vi.spyOn(sessionService, 'sendMessage')
       .mockResolvedValueOnce(orchestratorToolCall(1, 'call-a1', 'Open the discussion'))
       .mockResolvedValueOnce({ message: 'Actor A opens' })
-      .mockResolvedValueOnce(orchestratorToolCall(2, 'call-b1', 'Respond to Actor A'))
+      .mockResolvedValueOnce(
+        orchestratorToolCall(2, 'call-b1', 'Respond to Actor A', 'actor-a')
+      )
       .mockResolvedValueOnce({ message: 'Actor B responds' })
-      .mockResolvedValueOnce(orchestratorToolCall(1, 'call-a2', 'Follow up'))
+      .mockResolvedValueOnce(
+        orchestratorToolCall(1, 'call-a2', 'Follow up', 'actor-b')
+      )
       .mockResolvedValueOnce({ message: 'Actor A follows up' })
       .mockResolvedValueOnce({ message: 'WAIT_FOR_PARTICIPANT' });
     const onRoute = vi.fn();
@@ -155,6 +159,11 @@ describe('MultiLEIA partial traversal recovery', () => {
       'actor-a',
       'actor-b',
       'actor-a',
+    ]);
+    expect(runtime.transcript.slice(1).map((event) => event.addressedToId)).toEqual([
+      'participant',
+      'actor-a',
+      'actor-b',
     ]);
     expect(runtime.status).toBe('awaiting_user');
     expect(sessionService.sendMessage).toHaveBeenNthCalledWith(

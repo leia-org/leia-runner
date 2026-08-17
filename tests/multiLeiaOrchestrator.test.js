@@ -12,6 +12,7 @@ const {
   normalizeMaxInternalTurns,
   parseOrchestratorToolCall,
   parseRoutingDecision,
+  parseVirtualOrchestratorCall,
   planTurn,
 } = require('../services/multiLeiaOrchestrator');
 
@@ -115,7 +116,7 @@ describe('MultiLEIA virtual graph', () => {
       {
         callId: 'call-2',
         name: 'speak_as_leia_2',
-        arguments: '{"instruction":"Introduce yourself"}',
+        arguments: '{"targetId":"customer","instruction":"Ask about pricing"}',
       },
       actors
     );
@@ -127,13 +128,56 @@ describe('MultiLEIA virtual graph', () => {
     ]);
     expect(action).toEqual({
       actorId: 'analyst',
-      instruction: 'Introduce yourself',
+      targetId: 'customer',
+      instruction: 'Ask about pricing',
       callId: 'call-2',
       toolName: 'speak_as_leia_2',
     });
     expect(buildOrchestratorInstructions(actors, 'Task')).toContain(
       'asks who the LEIAs are'
     );
+    expect(tools[1].parameters.required).toEqual(['targetId', 'instruction']);
+  });
+
+  it('keeps the addressee and intent in virtual tool calls', () => {
+    expect(
+      parseVirtualOrchestratorCall(
+        {
+          message:
+            '{"toolName":"speak_as_leia_2","arguments":{"targetId":"customer","instruction":"Challenge the pricing assumption"}}',
+        },
+        actors,
+        'customer'
+      )
+    ).toEqual(
+      expect.objectContaining({
+        actorId: 'analyst',
+        targetId: 'customer',
+        instruction: 'Challenge the pricing assumption',
+      })
+    );
+  });
+
+  it('instructs an agent to react directly to another LEIA', () => {
+    const prompt = buildAgentTurnPrompt({
+      actor: actors[1],
+      target: actors[0],
+      events: [
+        {
+          senderName: 'Customer',
+          addressedToName: 'Analyst',
+          text: 'The price depends on the room.',
+        },
+      ],
+      sharedTask: 'Elicit requirements',
+      isLast: null,
+      instruction: 'Clarify the pricing rule with Customer',
+    });
+
+    expect(prompt).toContain('[Customer → Analyst]');
+    expect(prompt).toContain('Address Customer primarily.');
+    expect(prompt).toContain("React directly to Customer's actual contribution.");
+    expect(prompt).toContain('Do not claim group consensus');
   });
 
   it('runs coordinator tools sequentially through the OpenAI Responses provider', async () => {
@@ -145,7 +189,7 @@ describe('MultiLEIA virtual graph', () => {
           type: 'function_call',
           call_id: 'call-1',
           name: 'speak_as_leia_1',
-          arguments: '{"instruction":"Introduce yourself"}',
+          arguments: '{"targetId":"participant","instruction":"Introduce yourself"}',
         },
       ],
     });
