@@ -6,10 +6,14 @@ const {
   buildOrchestratorInstructions,
   buildOrchestratorTools,
   buildRoutingPrompt,
+  buildTurnPlanningPrompt,
+  buildTurnPlanningTool,
   createVirtualGraph,
   normalizeMaxInternalTurns,
   parseOrchestratorToolCall,
   parseRoutingDecision,
+  parseTurnPlanCall,
+  parseVirtualTurnPlan,
   parseVirtualOrchestratorCall,
 } = require('./multiLeiaOrchestrator');
 
@@ -322,7 +326,33 @@ class MultiLeiaService {
     };
   }
 
-  async sendCoordinatorMessage(runtime, currentSpeakerId, generatedCount, toolResults) {
+  async sendCoordinatorTurnPlan(runtime) {
+    const routerSessionId = runtime.orchestration.routerSessionId;
+    if (!routerSessionId) return null;
+
+    return sessionService.sendMessage(
+      routerSessionId,
+      buildTurnPlanningPrompt({
+        actors: runtime.actors,
+        events: runtime.transcript.slice(-MAX_CONTEXT_EVENTS),
+        maxTurns: runtime.orchestration.maxInternalTurns,
+      }),
+      {
+        tools: [buildTurnPlanningTool(runtime.actors)],
+        internalTools: true,
+        parallelToolCalls: false,
+        toolChoice: { type: 'function', name: 'plan_multi_leia_turn' },
+      }
+    );
+  }
+
+  async sendCoordinatorMessage(
+    runtime,
+    currentSpeakerId,
+    generatedCount,
+    toolResults,
+    turnPlan
+  ) {
     const routerSessionId = runtime.orchestration.routerSessionId;
     if (!routerSessionId) return null;
     const tools = buildOrchestratorTools(runtime.actors);
@@ -334,6 +364,7 @@ class MultiLeiaService {
           currentSpeakerId,
           generatedCount,
           maxTurns: runtime.orchestration.maxInternalTurns,
+          turnPlan,
         });
 
     return sessionService.sendMessage(routerSessionId, message, {
@@ -394,13 +425,53 @@ class MultiLeiaService {
       let actor = null;
       let coordinatorAvailable = Boolean(runtime.orchestration.routerSessionId);
       let coordinatorResponse = null;
+      let turnPlan = null;
 
       if (coordinatorAvailable) {
         try {
+          const planningResponse = await this.sendCoordinatorTurnPlan(runtime);
+          const nativePlanningCall = Array.isArray(planningResponse?.toolCalls)
+            ? planningResponse.toolCalls
+                .map((call) => parseTurnPlanCall(
+                  call,
+                  runtime.actors,
+                  runtime.orchestration.maxInternalTurns
+                ))
+                .find(Boolean)
+            : null;
+          turnPlan = nativePlanningCall || parseVirtualTurnPlan(
+            planningResponse,
+            runtime.actors,
+            runtime.orchestration.maxInternalTurns
+          );
+          if (!turnPlan) {
+            throw new Error('Coordinator did not return a valid semantic turn plan');
+          }
+
+          runtime.lastTurnPlan = {
+            turnId,
+            mode: turnPlan.mode,
+            minimumMessages: turnPlan.minimumMessages,
+            requiredActorIds: turnPlan.requiredActorIds,
+            openingActorId: turnPlan.openingActorId,
+            rationale: turnPlan.rationale,
+          };
+          await this.saveRuntime(runtime);
+
           coordinatorResponse = await this.sendCoordinatorMessage(
             runtime,
             currentSpeakerId,
-            generatedMessages.length
+            generatedMessages.length,
+            nativePlanningCall?.callId
+              ? [{
+                  callId: nativePlanningCall.callId,
+                  output: {
+                    status: 'accepted',
+                    plan: runtime.lastTurnPlan,
+                  },
+                }]
+              : undefined,
+            turnPlan
           );
         } catch (error) {
           console.warn(`MultiLEIA orchestrator fallback: ${error.message}`);
@@ -523,6 +594,70 @@ class MultiLeiaService {
       const failedActorIds = new Set();
       let lastActorFailure = null;
 
+      const getMissingPlannedActor = () => {
+        if (!turnPlan) return null;
+        const spokenActorIds = new Set(
+          generatedMessages.map((event) => event.senderId)
+        );
+        const requiredActor = turnPlan.requiredActorIds
+          .map((actorId) => runtime.actors.find((candidate) => candidate.id === actorId))
+          .find((candidate) =>
+            candidate &&
+            candidate.id !== currentSpeakerId &&
+            !spokenActorIds.has(candidate.id) &&
+            !failedActorIds.has(candidate.id)
+          );
+        if (requiredActor) return requiredActor;
+        if (generatedMessages.length >= turnPlan.minimumMessages) return null;
+
+        const plannedCandidates = [
+          runtime.actors.find((candidate) => candidate.id === turnPlan.openingActorId),
+          ...runtime.actors,
+        ].filter(Boolean);
+        return plannedCandidates.find((candidate) =>
+          candidate.id !== currentSpeakerId &&
+          !spokenActorIds.has(candidate.id) &&
+          !failedActorIds.has(candidate.id)
+        ) || plannedCandidates.find((candidate) =>
+          candidate.id !== currentSpeakerId &&
+          !failedActorIds.has(candidate.id)
+        ) || null;
+      };
+
+      const continueIncompletePlan = async () => {
+        const selectedActor = getMissingPlannedActor();
+        if (!selectedActor) return false;
+        const previousMessage = generatedMessages.at(-1);
+        const previousActor = previousMessage
+          ? runtime.actors.find(
+              (candidate) => candidate.id === previousMessage.senderId
+            )
+          : null;
+        const instruction = previousActor
+          ? [
+              `Complete the accepted ${turnPlan.mode} turn plan with your distinct contribution.`,
+              `React directly to what ${previousActor.name} just said and add what only your role contributes.`,
+              'Do not restart the answer or repeat the participant question.',
+            ].join(' ')
+          : [
+              `Open the accepted ${turnPlan.mode} turn plan.`,
+              'Respond naturally from your distinct role and leave room for the planned group exchange.',
+            ].join(' ');
+
+        try {
+          await generateActorMessage(
+            selectedActor,
+            instruction,
+            previousActor?.id || 'participant'
+          );
+          return true;
+        } catch (error) {
+          lastActorFailure = { actor: selectedActor, error };
+          failedActorIds.add(selectedActor.id);
+          return false;
+        }
+      };
+
       while (coordinatorSteps < maxCoordinatorSteps) {
         coordinatorSteps += 1;
         const nativeCalls = Array.isArray(coordinatorResponse?.toolCalls)
@@ -557,6 +692,21 @@ class MultiLeiaService {
               toolResults.push({
                 callId: action.callId,
                 output: { status: 'rejected', reason: 'Maximum public messages reached' },
+              });
+              continue;
+            }
+            if (
+              turnPlan &&
+              generatedMessages.length === 0 &&
+              action.actorId !== turnPlan.openingActorId &&
+              !failedActorIds.has(turnPlan.openingActorId)
+            ) {
+              toolResults.push({
+                callId: action.callId,
+                output: {
+                  status: 'rejected',
+                  reason: `The accepted plan must open with ${turnPlan.openingActorId}`,
+                },
               });
               continue;
             }
@@ -621,7 +771,8 @@ class MultiLeiaService {
                 runtime,
                 currentSpeakerId,
                 generatedMessages.length,
-                toolResults
+                toolResults,
+                turnPlan
               );
             } catch (error) {
               console.warn(`MultiLEIA orchestrator continuation failed: ${error.message}`);
@@ -653,10 +804,34 @@ class MultiLeiaService {
           runtime.actors,
           currentSpeakerId
         );
-        if (nextSpeakerId === 'participant' && generatedMessages.length > 0) break;
+        if (nextSpeakerId === 'participant' && generatedMessages.length > 0) {
+          const continued = await continueIncompletePlan();
+          if (!continued) break;
+          if (!coordinatorAvailable) continue;
+          try {
+            coordinatorResponse = await this.sendCoordinatorMessage(
+              runtime,
+              currentSpeakerId,
+              generatedMessages.length,
+              undefined,
+              turnPlan
+            );
+          } catch (error) {
+            console.warn(`MultiLEIA orchestrator fallback: ${error.message}`);
+            coordinatorAvailable = false;
+            coordinatorResponse = null;
+          }
+          continue;
+        }
         if (!nextSpeakerId || nextSpeakerId === 'participant') {
           if (generatedMessages.length > 0) break;
           const fallbackActors = [
+            runtime.actors.find(
+              (candidate) => candidate.id === turnPlan?.openingActorId
+            ),
+            ...(turnPlan?.requiredActorIds || []).map((actorId) =>
+              runtime.actors.find((candidate) => candidate.id === actorId)
+            ),
             runtime.actors[runtime.nextActorIndex],
             ...runtime.actors,
           ].filter(Boolean);
@@ -696,7 +871,9 @@ class MultiLeiaService {
           coordinatorResponse = await this.sendCoordinatorMessage(
             runtime,
             currentSpeakerId,
-            generatedMessages.length
+            generatedMessages.length,
+            undefined,
+            turnPlan
           );
         } catch (error) {
           console.warn(`MultiLEIA orchestrator fallback: ${error.message}`);

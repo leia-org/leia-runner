@@ -39,6 +39,7 @@ class OpenAIResponsesProvider extends BaseModel {
             allowTools,
             internalTools,
             parallelToolCalls,
+            toolChoice,
         } = options;
         const state = new ProviderState(sessionData);
         const baseInstruction = state.getSystemInstruction();
@@ -100,6 +101,12 @@ class OpenAIResponsesProvider extends BaseModel {
                 requestPayload.tools = normalizedTools;
                 if (typeof parallelToolCalls === 'boolean') {
                     requestPayload.parallel_tool_calls = parallelToolCalls;
+                }
+                if (
+                    typeof toolChoice === 'string' ||
+                    (toolChoice && typeof toolChoice === 'object')
+                ) {
+                    requestPayload.tool_choice = toolChoice;
                 }
             }
 

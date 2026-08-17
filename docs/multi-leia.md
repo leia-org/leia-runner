@@ -26,12 +26,13 @@ Every actor keeps its own persona and behaviour. The actor's original problem is
 
 Runner builds an implicit graph with the participant, every LEIA actor and an end node. The graph is not persisted as authored edges. A private coordinator session receives one `speak_as_leia_N` function tool per actor and manages a complete participant round:
 
-1. It calls one LEIA tool with both a primary addressee and a private conversational instruction, then observes that actor's public message.
-2. It can then call another LEIA tool, so every later decision includes what the previous actor said.
-3. Agent-to-agent calls are labeled in the transcript, allowing the next LEIA to answer, challenge or build directly on the previous contribution instead of independently answering the participant.
-4. A question addressed to the whole group gives every relevant LEIA a separate message, while a direct question can be answered by only one. A plain greeting receives exactly one short response.
-5. It returns `WAIT_FOR_PARTICIPANT` when the group needs participant input.
-6. The configured maximum always stops the round even if the coordinator would continue.
+1. The coordinator first calls `plan_multi_leia_turn`. The LLM uses the complete public context and actor roles to choose a single reply, multiple perspectives or an agent-to-agent discussion, including the minimum number of messages and required actors.
+2. It calls one LEIA tool with both a primary addressee and a private conversational instruction, then observes that actor's public message.
+3. It can then call another LEIA tool, so every later decision includes what the previous actor said.
+4. Agent-to-agent calls are labeled in the transcript, allowing the next LEIA to answer, challenge or build directly on the previous contribution instead of independently answering the participant.
+5. The runtime does not infer group intent from keywords. It enforces the semantic LLM plan if the coordinator attempts to return `WAIT_FOR_PARTICIPANT` before its planned voices have contributed.
+6. It returns `WAIT_FOR_PARTICIPANT` when the plan is complete and the group needs participant input.
+7. The configured maximum always stops the round even if the coordinator would continue.
 
 A round can therefore contain one to eight public LEIA messages. Actors may speak again later in the same round, so the maximum can be greater than the number of configured LEIAs. Providers without native function tools use the same one-tool-at-a-time protocol through structured JSON. Invalid coordinator output falls back to the preferred opening actor and returns control after its response.
 

@@ -149,6 +149,7 @@ class SessionService {
         toolResults: allowTools ? options.toolResults : undefined,
         internalTools: options.internalTools === true,
         parallelToolCalls: options.parallelToolCalls,
+        toolChoice: options.toolChoice,
       });
 
       if (response?.sessionData) {

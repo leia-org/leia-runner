@@ -8,10 +8,15 @@ const {
   buildOrchestratorInstructions,
   buildOrchestratorTools,
   buildRoutingPrompt,
+  buildTurnPlanningPrompt,
+  buildTurnPlanningTool,
   createVirtualGraph,
   normalizeMaxInternalTurns,
+  normalizeTurnPlan,
   parseOrchestratorToolCall,
   parseRoutingDecision,
+  parseTurnPlanCall,
+  parseVirtualTurnPlan,
   parseVirtualOrchestratorCall,
   planTurn,
 } = require('../services/multiLeiaOrchestrator');
@@ -110,6 +115,72 @@ describe('MultiLEIA virtual graph', () => {
     expect(prompt).toContain('Eligible LEIAs: customer');
   });
 
+  it('asks the LLM to make a semantic plan before any LEIA speaks', () => {
+    const tool = buildTurnPlanningTool(actors);
+    const prompt = buildTurnPlanningPrompt({
+      actors,
+      events: [
+        { senderName: 'Participant', text: 'Tell me what you each contribute.' },
+      ],
+      maxTurns: 4,
+    });
+
+    expect(tool.name).toBe('plan_multi_leia_turn');
+    expect(tool.parameters.properties.requiredActorIds.items.enum).toEqual([
+      'customer',
+      'analyst',
+      'architect',
+    ]);
+    expect(prompt).toContain('Make a semantic conversational judgment');
+    expect(prompt).toContain('[Participant]: Tell me what you each contribute.');
+    expect(prompt).toContain('Do not publish a message');
+  });
+
+  it('normalizes native and virtual LLM turn plans against the actor roster', () => {
+    const args = {
+      mode: 'agent_discussion',
+      minimumMessages: 2,
+      requiredActorIds: ['customer', 'analyst', 'missing'],
+      openingActorId: 'customer',
+      rationale: 'Two roles should compare their views.',
+    };
+
+    expect(normalizeTurnPlan(args, actors, 2)).toEqual({
+      mode: 'agent_discussion',
+      minimumMessages: 2,
+      requiredActorIds: ['customer', 'analyst'],
+      openingActorId: 'customer',
+      rationale: 'Two roles should compare their views.',
+    });
+    expect(
+      parseTurnPlanCall(
+        {
+          callId: 'plan-1',
+          name: 'plan_multi_leia_turn',
+          arguments: JSON.stringify(args),
+        },
+        actors,
+        2
+      )
+    ).toEqual(expect.objectContaining({
+      callId: 'plan-1',
+      minimumMessages: 2,
+      requiredActorIds: ['customer', 'analyst'],
+    }));
+    expect(
+      parseVirtualTurnPlan(
+        {
+          message: JSON.stringify({
+            toolName: 'plan_multi_leia_turn',
+            arguments: args,
+          }),
+        },
+        actors,
+        2
+      )
+    ).toEqual(expect.objectContaining({ mode: 'agent_discussion' }));
+  });
+
   it('exposes one speaking tool per LEIA and resolves calls back to actors', () => {
     const tools = buildOrchestratorTools(actors);
     const action = parseOrchestratorToolCall(
@@ -206,6 +277,7 @@ describe('MultiLEIA virtual graph', () => {
       allowTools: true,
       internalTools: true,
       parallelToolCalls: false,
+      toolChoice: { type: 'function', name: 'speak_as_leia_1' },
     });
 
     expect(response.toolCalls).toEqual([
@@ -218,6 +290,7 @@ describe('MultiLEIA virtual graph', () => {
       expect.objectContaining({
         instructions: 'Private coordinator instructions',
         parallel_tool_calls: false,
+        tool_choice: { type: 'function', name: 'speak_as_leia_1' },
         tools: expect.arrayContaining([
           expect.objectContaining({ name: 'speak_as_leia_1' }),
         ]),

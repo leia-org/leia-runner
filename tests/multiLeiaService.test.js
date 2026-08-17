@@ -19,6 +19,26 @@ function orchestratorToolCall(index, callId, instruction, targetId = 'participan
   };
 }
 
+function mockTurnPlan(overrides = {}) {
+  const plan = {
+    mode: 'single_reply',
+    minimumMessages: 1,
+    requiredActorIds: [],
+    openingActorId: 'actor-a',
+    rationale: 'A single role can answer this turn.',
+    ...overrides,
+  };
+  return vi.spyOn(multiLeiaService, 'sendCoordinatorTurnPlan').mockResolvedValue({
+    toolCalls: [
+      {
+        callId: 'plan-call',
+        name: 'plan_multi_leia_turn',
+        arguments: JSON.stringify(plan),
+      },
+    ],
+  });
+}
+
 function createRuntime(maxInternalTurns = 2) {
   return {
     version: 1,
@@ -53,6 +73,12 @@ describe('MultiLEIA partial traversal recovery', () => {
   it('keeps completed messages and retries from the failed actor next turn', async () => {
     const runtime = createRuntime();
     let lockToken = null;
+
+    mockTurnPlan({
+      mode: 'agent_discussion',
+      minimumMessages: 2,
+      requiredActorIds: ['actor-a', 'actor-b'],
+    });
 
     vi.spyOn(redisClient, 'set').mockImplementation(async (key, value) => {
       if (key.startsWith('multi-leia:lock:')) lockToken = value;
@@ -108,6 +134,12 @@ describe('MultiLEIA partial traversal recovery', () => {
   it('lets two LEIAs speak more than twice until the orchestrator returns control', async () => {
     const runtime = createRuntime(6);
     let lockToken = null;
+
+    mockTurnPlan({
+      mode: 'agent_discussion',
+      minimumMessages: 3,
+      requiredActorIds: ['actor-a', 'actor-b'],
+    });
 
     vi.spyOn(redisClient, 'set').mockImplementation(async (key, value) => {
       if (key.startsWith('multi-leia:lock:')) lockToken = value;
@@ -190,6 +222,8 @@ describe('MultiLEIA partial traversal recovery', () => {
     const runtime = createRuntime(6);
     let lockToken = null;
 
+    mockTurnPlan({ openingActorId: 'actor-b' });
+
     vi.spyOn(redisClient, 'set').mockImplementation(async (key, value) => {
       if (key.startsWith('multi-leia:lock:')) lockToken = value;
       return 'OK';
@@ -226,6 +260,13 @@ describe('MultiLEIA partial traversal recovery', () => {
     const runtime = createRuntime(6);
     let lockToken = null;
 
+    mockTurnPlan({
+      mode: 'multiple_perspectives',
+      minimumMessages: 2,
+      requiredActorIds: ['actor-a', 'actor-b'],
+      rationale: 'The participant asked the whole group who they are.',
+    });
+
     vi.spyOn(redisClient, 'set').mockImplementation(async (key, value) => {
       if (key.startsWith('multi-leia:lock:')) lockToken = value;
       return 'OK';
@@ -261,6 +302,54 @@ describe('MultiLEIA partial traversal recovery', () => {
     ]);
   });
 
+  it('completes the semantic LLM plan when the coordinator tries to stop early', async () => {
+    const runtime = createRuntime(4);
+    let lockToken = null;
+
+    mockTurnPlan({
+      mode: 'agent_discussion',
+      minimumMessages: 2,
+      requiredActorIds: ['actor-a', 'actor-b'],
+      rationale: 'Both roles are needed and should respond to each other.',
+    });
+    vi.spyOn(redisClient, 'set').mockImplementation(async (key, value) => {
+      if (key.startsWith('multi-leia:lock:')) lockToken = value;
+      return 'OK';
+    });
+    vi.spyOn(redisClient, 'get').mockImplementation(async (key) =>
+      key.startsWith('multi-leia:lock:') ? lockToken : null
+    );
+    vi.spyOn(redisClient, 'del').mockResolvedValue(1);
+    vi.spyOn(multiLeiaService, 'getRuntime').mockResolvedValue(runtime);
+    vi.spyOn(multiLeiaService, 'saveRuntime').mockImplementation(async (value) => value);
+    vi.spyOn(sessionService, 'sendMessage')
+      .mockResolvedValueOnce(orchestratorToolCall(1, 'first', 'Start the answer'))
+      .mockResolvedValueOnce({ message: 'Actor A explains their role.' })
+      .mockResolvedValueOnce({ message: 'WAIT_FOR_PARTICIPANT' })
+      .mockResolvedValueOnce({ message: 'Actor B reacts with their distinct role.' })
+      .mockResolvedValueOnce({ message: 'WAIT_FOR_PARTICIPANT' });
+
+    const result = await multiLeiaService.sendMessage(
+      runtime.sessionId,
+      'What does everyone here do?',
+      'turn-enforced-plan'
+    );
+
+    expect(result.messages.map((event) => event.senderId)).toEqual([
+      'actor-a',
+      'actor-b',
+    ]);
+    expect(result.messages[1]).toMatchObject({
+      addressedToId: 'actor-a',
+      addressedToName: 'Actor A',
+    });
+    expect(sessionService.sendMessage).toHaveBeenNthCalledWith(
+      4,
+      'session-1:actor:actor-b',
+      expect.stringContaining('React directly to what Actor A just said')
+    );
+  });
+
   it('enables trusted coordinator tools without activity widgets', async () => {
     const providerSendMessage = vi.fn().mockResolvedValue({ message: 'done' });
     vi.spyOn(sessionService, 'getSession').mockResolvedValue({
@@ -294,6 +383,8 @@ describe('MultiLEIA partial traversal recovery', () => {
   it('lets the coordinator recover by calling another LEIA when one tool fails', async () => {
     const runtime = createRuntime(2);
     let lockToken = null;
+
+    mockTurnPlan();
 
     vi.spyOn(redisClient, 'set').mockImplementation(async (key, value) => {
       if (key.startsWith('multi-leia:lock:')) lockToken = value;
