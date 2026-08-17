@@ -26,7 +26,7 @@ Every actor keeps its own persona and behaviour. The actor's original problem is
 
 Runner builds an implicit graph with the participant, every LEIA actor and an end node. The graph is not persisted as authored edges. A private coordinator session receives one `speak_as_leia_N` function tool per actor and manages a complete participant round:
 
-1. The coordinator first calls `plan_multi_leia_turn`. The LLM uses the complete public context and actor roles to choose a single reply, multiple perspectives or an agent-to-agent discussion, including the minimum number of messages and required actors.
+1. The coordinator first calls `plan_multi_leia_turn`. The LLM uses the complete public context to classify the conversational audience as an individual, a named subset or the whole group, then chooses a single reply, multiple perspectives or an agent-to-agent discussion. Whole-group intent requires every available LEIA within the configured safety maximum, independently of professional role relevance.
 2. It calls one LEIA tool with both a primary addressee and a private conversational instruction, then observes that actor's public message.
 3. It can then call another LEIA tool, so every later decision includes what the previous actor said.
 4. Agent-to-agent calls are labeled in the transcript, allowing the next LEIA to answer, challenge or build directly on the previous contribution instead of independently answering the participant.

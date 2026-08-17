@@ -138,6 +138,7 @@ describe('MultiLEIA virtual graph', () => {
 
   it('normalizes native and virtual LLM turn plans against the actor roster', () => {
     const args = {
+      audience: 'named_subset',
       mode: 'agent_discussion',
       minimumMessages: 2,
       requiredActorIds: ['customer', 'analyst', 'missing'],
@@ -146,6 +147,7 @@ describe('MultiLEIA virtual graph', () => {
     };
 
     expect(normalizeTurnPlan(args, actors, 2)).toEqual({
+      audience: 'named_subset',
       mode: 'agent_discussion',
       minimumMessages: 2,
       requiredActorIds: ['customer', 'analyst'],
@@ -179,6 +181,22 @@ describe('MultiLEIA virtual graph', () => {
         2
       )
     ).toEqual(expect.objectContaining({ mode: 'agent_discussion' }));
+  });
+
+  it('turns an LLM whole-group audience decision into required group participation', () => {
+    expect(normalizeTurnPlan({
+      audience: 'whole_group',
+      mode: 'single_reply',
+      minimumMessages: 1,
+      requiredActorIds: ['customer'],
+      openingActorId: 'customer',
+      rationale: 'The participant asks how the group is doing.',
+    }, actors, 3)).toEqual(expect.objectContaining({
+      audience: 'whole_group',
+      mode: 'multiple_perspectives',
+      minimumMessages: 3,
+      requiredActorIds: ['customer', 'analyst', 'architect'],
+    }));
   });
 
   it('exposes one speaking tool per LEIA and resolves calls back to actors', () => {

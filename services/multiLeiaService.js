@@ -452,6 +452,7 @@ class MultiLeiaService {
 
           runtime.lastTurnPlan = {
             turnId,
+            audience: turnPlan.audience,
             mode: turnPlan.mode,
             minimumMessages: turnPlan.minimumMessages,
             requiredActorIds: turnPlan.requiredActorIds,

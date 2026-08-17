@@ -21,6 +21,7 @@ function orchestratorToolCall(index, callId, instruction, targetId = 'participan
 
 function mockTurnPlan(overrides = {}) {
   const plan = {
+    audience: 'individual',
     mode: 'single_reply',
     minimumMessages: 1,
     requiredActorIds: [],
@@ -75,6 +76,7 @@ describe('MultiLEIA partial traversal recovery', () => {
     let lockToken = null;
 
     mockTurnPlan({
+      audience: 'whole_group',
       mode: 'agent_discussion',
       minimumMessages: 2,
       requiredActorIds: ['actor-a', 'actor-b'],
@@ -261,6 +263,7 @@ describe('MultiLEIA partial traversal recovery', () => {
     let lockToken = null;
 
     mockTurnPlan({
+      audience: 'whole_group',
       mode: 'multiple_perspectives',
       minimumMessages: 2,
       requiredActorIds: ['actor-a', 'actor-b'],
@@ -315,6 +318,7 @@ describe('MultiLEIA partial traversal recovery', () => {
     let lockToken = null;
 
     mockTurnPlan({
+      audience: 'whole_group',
       mode: 'agent_discussion',
       minimumMessages: 2,
       requiredActorIds: ['actor-a', 'actor-b'],
@@ -363,6 +367,7 @@ describe('MultiLEIA partial traversal recovery', () => {
     let lockToken = null;
 
     mockTurnPlan({
+      audience: 'whole_group',
       mode: 'multiple_perspectives',
       minimumMessages: 2,
       requiredActorIds: ['actor-a', 'actor-b'],
