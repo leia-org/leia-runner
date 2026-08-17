@@ -6,7 +6,7 @@ const multiLeiaService = require('../services/multiLeiaService');
 const sessionService = require('../services/sessionService');
 const { redisClient } = require('../config/redis');
 
-function createRuntime() {
+function createRuntime(maxInternalTurns = 2) {
   return {
     version: 1,
     sessionId: 'session-1',
@@ -17,10 +17,11 @@ function createRuntime() {
     ],
     graph: {},
     orchestration: {
-      maxInternalTurns: 2,
+      maxInternalTurns,
       openingActorId: 'actor-a',
       problemActorId: 'actor-a',
       sharedTask: 'Solve the shared task',
+      routerSessionId: 'session-1:orchestrator',
     },
     nextActorIndex: 0,
     sequence: 0,
@@ -51,13 +52,17 @@ describe('MultiLEIA partial traversal recovery', () => {
     vi.spyOn(multiLeiaService, 'getRuntime').mockResolvedValue(runtime);
     vi.spyOn(multiLeiaService, 'saveRuntime').mockImplementation(async (value) => value);
     vi.spyOn(sessionService, 'sendMessage')
+      .mockResolvedValueOnce({ message: '{"nextSpeakerId":"actor-a"}' })
       .mockResolvedValueOnce({ message: 'Actor A response' })
+      .mockResolvedValueOnce({ message: '{"nextSpeakerId":"actor-b"}' })
       .mockRejectedValueOnce(new Error('Provider unavailable'));
+    const onMessage = vi.fn();
 
     const result = await multiLeiaService.sendMessage(
       runtime.sessionId,
       'Participant message',
-      'turn-1'
+      'turn-1',
+      { onMessage }
     );
 
     expect(result.partial).toBe(true);
@@ -82,6 +87,98 @@ describe('MultiLEIA partial traversal recovery', () => {
     ]);
     expect(runtime.processedTurns).toEqual([
       { turnId: 'turn-1', messages: result.messages },
+    ]);
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    expect(onMessage).toHaveBeenCalledWith(result.messages[0]);
+  });
+
+  it('lets two LEIAs speak more than twice until the orchestrator returns control', async () => {
+    const runtime = createRuntime(6);
+    let lockToken = null;
+
+    vi.spyOn(redisClient, 'set').mockImplementation(async (key, value) => {
+      if (key.startsWith('multi-leia:lock:')) lockToken = value;
+      return 'OK';
+    });
+    vi.spyOn(redisClient, 'get').mockImplementation(async (key) =>
+      key.startsWith('multi-leia:lock:') ? lockToken : null
+    );
+    vi.spyOn(redisClient, 'del').mockResolvedValue(1);
+    vi.spyOn(multiLeiaService, 'getRuntime').mockResolvedValue(runtime);
+    vi.spyOn(multiLeiaService, 'saveRuntime').mockImplementation(async (value) => value);
+    vi.spyOn(sessionService, 'sendMessage')
+      .mockResolvedValueOnce({ message: '{"nextSpeakerId":"actor-a"}' })
+      .mockResolvedValueOnce({ message: 'Actor A opens' })
+      .mockResolvedValueOnce({ message: '{"nextSpeakerId":"actor-b"}' })
+      .mockResolvedValueOnce({ message: 'Actor B responds' })
+      .mockResolvedValueOnce({ message: '{"nextSpeakerId":"actor-a"}' })
+      .mockResolvedValueOnce({ message: 'Actor A follows up' })
+      .mockResolvedValueOnce({ message: '{"nextSpeakerId":"participant"}' });
+    const onRoute = vi.fn();
+    const onMessage = vi.fn();
+
+    const result = await multiLeiaService.sendMessage(
+      runtime.sessionId,
+      'Start the discussion',
+      'turn-long',
+      { onRoute, onMessage }
+    );
+
+    expect(result.partial).toBeUndefined();
+    expect(result.messages.map((message) => message.senderId)).toEqual([
+      'actor-a',
+      'actor-b',
+      'actor-a',
+    ]);
+    expect(result.messages.map((message) => message.text)).toEqual([
+      'Actor A opens',
+      'Actor B responds',
+      'Actor A follows up',
+    ]);
+    expect(onRoute).toHaveBeenCalledTimes(3);
+    expect(onMessage).toHaveBeenCalledTimes(3);
+    expect(runtime.transcript.map((event) => event.senderId)).toEqual([
+      'participant',
+      'actor-a',
+      'actor-b',
+      'actor-a',
+    ]);
+    expect(runtime.status).toBe('awaiting_user');
+  });
+
+  it('stops after one LEIA when the orchestrator returns control to the participant', async () => {
+    const runtime = createRuntime(6);
+    let lockToken = null;
+
+    vi.spyOn(redisClient, 'set').mockImplementation(async (key, value) => {
+      if (key.startsWith('multi-leia:lock:')) lockToken = value;
+      return 'OK';
+    });
+    vi.spyOn(redisClient, 'get').mockImplementation(async (key) =>
+      key.startsWith('multi-leia:lock:') ? lockToken : null
+    );
+    vi.spyOn(redisClient, 'del').mockResolvedValue(1);
+    vi.spyOn(multiLeiaService, 'getRuntime').mockResolvedValue(runtime);
+    vi.spyOn(multiLeiaService, 'saveRuntime').mockImplementation(async (value) => value);
+    vi.spyOn(sessionService, 'sendMessage')
+      .mockResolvedValueOnce({ message: '{"nextSpeakerId":"actor-b"}' })
+      .mockResolvedValueOnce({ message: 'Hello, how can I help?' })
+      .mockResolvedValueOnce({ message: '{"nextSpeakerId":"participant"}' });
+
+    const result = await multiLeiaService.sendMessage(
+      runtime.sessionId,
+      'Hello',
+      'turn-short'
+    );
+
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0]).toMatchObject({
+      senderId: 'actor-b',
+      text: 'Hello, how can I help?',
+    });
+    expect(runtime.transcript.map((event) => event.senderId)).toEqual([
+      'participant',
+      'actor-b',
     ]);
   });
 });

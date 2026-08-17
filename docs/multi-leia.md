@@ -18,20 +18,22 @@ An activity contains at least two LEIA configurations and one orchestration obje
 }
 ```
 
-`openingLeiaId` controls the first actor in the deterministic traversal. `problemLeiaId` is independent and identifies the LEIA whose problem supplies the scenario, widgets, solution and evaluation for the whole activity.
+`openingLeiaId` is the fallback first actor if dynamic routing is unavailable. `problemLeiaId` is independent and identifies the LEIA whose problem supplies the scenario, widgets, solution and evaluation for the whole activity. `maxInternalTurns` is a safety ceiling, not a required number of messages.
 
 Every actor keeps its own persona and behaviour. The actor's original problem is ignored. The runtime explicitly applies the behaviour's method, role and tone to the shared problem, and Designer rejects publication when a behaviour's `process` differs from the shared problem's `process`.
 
 ## Runtime graph
 
-Runner builds an implicit graph with the participant, every LEIA actor and an end node. The graph is not persisted as authored edges. Each participant turn explores a deterministic rotating slice of the actors:
+Runner builds an implicit graph with the participant, every LEIA actor and an end node. The graph is not persisted as authored edges. A private orchestrator session selects the next graph node before every public LEIA message:
 
-1. The current opening actor addresses the next actor.
-2. Further actors continue the public discussion.
-3. The final actor addresses the participant and asks the next useful question.
-4. The opening position rotates for the next participant turn.
+1. It can select any LEIA except the actor that just spoke.
+2. It selects another LEIA only when that role materially adds to the exchange.
+3. It selects the participant when the latest answer is sufficient or participant input is required.
+4. The configured maximum always stops the round even if the router would continue.
 
-The number of actor steps is between two and five and cannot exceed the number of actors.
+A round can therefore contain one to eight public LEIA messages. Actors may speak again later in the same round, so the maximum can be greater than the number of configured LEIAs. Invalid router output falls back to a deterministic opening actor and returns control after its response.
+
+Runner exposes the traversal as one SSE response. It emits `route` before an actor starts, `message` after each public response, and `complete` when control returns to the participant. Workbench persists every message before forwarding it through its own SSE stream to the browser.
 
 ## Shared memory and isolation
 
@@ -48,4 +50,4 @@ The persisted public event fields are `sequence`, `senderType`, `senderId`, `sen
 - One traversal at a time per session, protected by a Redis lock.
 - A `turnId` acts as an idempotency key for completed Runner turns.
 
-If an actor fails after earlier actors have already answered, Runner returns those saved messages with `partial: true`, records the failed actor in `state.lastPartial`, and makes that actor the opening node of the next traversal. A fully successful traversal clears the partial state.
+If an actor fails after earlier actors have already answered, Runner returns those saved messages with `partial: true`, records the failed actor in `state.lastPartial`, and makes that actor the preferred fallback node of the next traversal. A fully successful traversal clears the partial state.

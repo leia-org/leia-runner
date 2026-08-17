@@ -3,9 +3,11 @@ const { redisClient } = require('../config/redis');
 const sessionService = require('./sessionService');
 const {
   buildAgentTurnPrompt,
+  buildOrchestratorInstructions,
+  buildRoutingPrompt,
   createVirtualGraph,
   normalizeMaxInternalTurns,
-  planTurn,
+  parseRoutingDecision,
 } = require('./multiLeiaOrchestrator');
 
 const MAX_CONTEXT_EVENTS = 40;
@@ -140,6 +142,7 @@ class MultiLeiaService {
       return {
         id,
         name: readString(input.name) || getActorName(input.leia, `LEIA ${index + 1}`),
+        role: readString(input.leia?.spec?.behaviour?.spec?.role),
         leia: input.leia,
         runnerConfiguration: input.runnerConfiguration,
       };
@@ -187,6 +190,8 @@ class MultiLeiaService {
     const sharedTask =
       readString(orchestration.sharedTask) || buildSharedTask(problemActor.leia);
     const createdSessionIds = [];
+    const primaryActor = problemActor;
+    const primaryConfig = primaryActor.runnerConfiguration;
 
     try {
       for (const actor of actors) {
@@ -205,10 +210,19 @@ class MultiLeiaService {
         createdSessionIds.push(actorSessionId);
       }
 
+      const routerSessionId = `${sessionId}:orchestrator`;
+      await sessionService.createSession(
+        routerSessionId,
+        buildOrchestratorInstructions(actors, sharedTask),
+        primaryConfig.modelName,
+        primaryConfig.provider || 'default',
+        primaryConfig.apiKeyId,
+        primaryConfig.apiKeyRequesterId
+      );
+      createdSessionIds.push(routerSessionId);
+
       // Keep a base provider session for the existing evaluation endpoint.
       // Conversation turns use the isolated actor sessions above.
-      const primaryActor = problemActor;
-      const primaryConfig = primaryActor.runnerConfiguration;
       await sessionService.createSession(
         sessionId,
         buildAgentInstructions(primaryActor, actors, sharedTask),
@@ -238,6 +252,7 @@ class MultiLeiaService {
           openingActorId: actors[openingIndex].id,
           problemActorId: primaryActor.id,
           sharedTask,
+          routerSessionId,
         },
         nextActorIndex: openingIndex,
         sequence: 0,
@@ -290,7 +305,43 @@ class MultiLeiaService {
     };
   }
 
-  async sendMessage(sessionId, message, turnId) {
+  async selectNextSpeaker(runtime, currentSpeakerId, generatedCount) {
+    const maxTurns = runtime.orchestration.maxInternalTurns;
+    if (generatedCount >= maxTurns) return 'participant';
+
+    const routerSessionId = runtime.orchestration.routerSessionId;
+    if (routerSessionId) {
+      try {
+        const response = await sessionService.sendMessage(
+          routerSessionId,
+          buildRoutingPrompt({
+            actors: runtime.actors,
+            events: runtime.transcript.slice(-MAX_CONTEXT_EVENTS),
+            currentSpeakerId,
+            generatedCount,
+            maxTurns,
+          })
+        );
+        const decision = parseRoutingDecision(
+          response,
+          runtime.actors,
+          currentSpeakerId
+        );
+        if (decision && (decision !== 'participant' || generatedCount > 0)) {
+          return decision;
+        }
+      } catch (error) {
+        console.warn(`MultiLEIA orchestrator fallback: ${error.message}`);
+      }
+    }
+
+    // Deterministic fallback keeps the chat usable if the private router is
+    // unavailable or an older runtime has no router session.
+    if (generatedCount > 0) return 'participant';
+    return runtime.actors[runtime.nextActorIndex]?.id || runtime.actors[0].id;
+  }
+
+  async sendMessage(sessionId, message, turnId, options = {}) {
     const text = readString(message);
     if (!text) throw createError('Message is required');
     turnId = readString(turnId) || randomUUID();
@@ -310,6 +361,11 @@ class MultiLeiaService {
 
       const completedTurn = runtime.processedTurns.find((turn) => turn.turnId === turnId);
       if (completedTurn) {
+        if (typeof options.onMessage === 'function') {
+          for (const event of completedTurn.messages) {
+            await options.onMessage(event);
+          }
+        }
         return {
           turnId,
           messages: completedTurn.messages,
@@ -330,23 +386,40 @@ class MultiLeiaService {
       });
       await this.saveRuntime(runtime);
 
-      const plan = planTurn(runtime);
       const generatedMessages = [];
+      let currentSpeakerId = 'participant';
+      let actor = null;
 
-      for (const step of plan.steps) {
-        const actor = runtime.actors.find((candidate) => candidate.id === step.actorId);
-        const target = step.targetId === 'participant'
-          ? { id: 'participant', name: 'the participant' }
-          : runtime.actors.find((candidate) => candidate.id === step.targetId);
+      while (generatedMessages.length < runtime.orchestration.maxInternalTurns) {
+        const nextSpeakerId = await this.selectNextSpeaker(
+          runtime,
+          currentSpeakerId,
+          generatedMessages.length
+        );
+        if (nextSpeakerId === 'participant') break;
+
+        actor = runtime.actors.find((candidate) => candidate.id === nextSpeakerId);
+        if (!actor) {
+          throw createError(`Orchestrator selected unknown actor ${nextSpeakerId}`, 500);
+        }
+        if (typeof options.onRoute === 'function') {
+          await options.onRoute({
+            nextActorId: actor.id,
+            nextActorName: actor.name,
+            generatedCount: generatedMessages.length,
+            maxTurns: runtime.orchestration.maxInternalTurns,
+          });
+        }
+
         const events = runtime.transcript
           .filter((event) => event.sequence > (actor.cursor || 0))
           .slice(-MAX_CONTEXT_EVENTS);
         const prompt = buildAgentTurnPrompt({
           actor,
-          target,
+          target: { id: 'group', name: 'the group' },
           events,
           sharedTask: runtime.orchestration.sharedTask,
-          isLast: step.isLast,
+          isLast: null,
         });
 
         try {
@@ -362,7 +435,12 @@ class MultiLeiaService {
             senderType: 'agent',
             senderId: actor.id,
             senderName: actor.name,
-            recipientIds: [step.targetId],
+            recipientIds: [
+              'participant',
+              ...runtime.actors
+                .filter((candidate) => candidate.id !== actor.id)
+                .map((candidate) => candidate.id),
+            ],
             text: responseText,
             turnId,
           });
@@ -370,12 +448,15 @@ class MultiLeiaService {
           generatedMessages.push(event);
           runtime.traversal.push({
             sequence: event.sequence,
-            from: generatedMessages.length === 1 ? 'participant' : generatedMessages.at(-2).senderId,
+            from: currentSpeakerId,
             to: actor.id,
-            next: step.targetId,
           });
           runtime.traversal = runtime.traversal.slice(-MAX_STORED_EVENTS);
           await this.saveRuntime(runtime);
+          if (typeof options.onMessage === 'function') {
+            await options.onMessage(event);
+          }
+          currentSpeakerId = actor.id;
         } catch (error) {
           if (generatedMessages.length === 0) {
             runtime.transcript = runtime.transcript.filter(
@@ -412,7 +493,12 @@ class MultiLeiaService {
       }
 
       runtime.status = 'awaiting_user';
-      runtime.nextActorIndex = plan.nextActorIndex;
+      if (actor) {
+        const actorIndex = runtime.actors.findIndex(
+          (candidate) => candidate.id === actor.id
+        );
+        runtime.nextActorIndex = (actorIndex + 1) % runtime.actors.length;
+      }
       runtime.lastPartial = null;
       runtime.updatedAt = new Date().toISOString();
       runtime.processedTurns.push({ turnId, messages: generatedMessages });

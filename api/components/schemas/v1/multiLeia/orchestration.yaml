@@ -2,13 +2,14 @@ type: object
 properties:
   maxInternalTurns:
     type: integer
-    minimum: 2
-    maximum: 5
+    minimum: 1
+    maximum: 8
     default: 2
+    description: Maximum public LEIA messages in one participant round. The orchestrator may stop earlier.
   openingActorId:
     type: string
     nullable: true
-    description: Actor that opens the first deterministic traversal.
+    description: Fallback first actor when dynamic routing is unavailable.
   problemActorId:
     type: string
     nullable: true

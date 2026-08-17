@@ -23,11 +23,15 @@ properties:
           type: string
         name:
           type: string
+        role:
+          type: string
   graph:
     type: object
     additionalProperties: true
   maxInternalTurns:
     type: integer
+    minimum: 1
+    maximum: 8
   openingActorId:
     type: string
   problemActorId:

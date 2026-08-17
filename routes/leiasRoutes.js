@@ -32,6 +32,7 @@ router.post('/leias/:sessionId/messages', leiasController.sendLeiaMessage);
 router.post('/multi-leias', multiLeiasController.createMultiLeia);
 router.get('/multi-leias/:sessionId', multiLeiasController.getMultiLeiaState);
 router.post('/multi-leias/:sessionId/messages', multiLeiasController.sendMultiLeiaMessage);
+router.post('/multi-leias/:sessionId/messages/stream', multiLeiasController.streamMultiLeiaMessage);
 
 // Endpoint para listar los modelos disponibles
 router.get('/models', modelsController.listModels);

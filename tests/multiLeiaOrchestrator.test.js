@@ -4,8 +4,10 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const {
   buildAgentTurnPrompt,
+  buildRoutingPrompt,
   createVirtualGraph,
   normalizeMaxInternalTurns,
+  parseRoutingDecision,
   planTurn,
 } = require('../services/multiLeiaOrchestrator');
 
@@ -44,9 +46,9 @@ describe('MultiLEIA virtual graph', () => {
     expect(second.steps[1].actorId).toBe('architect');
   });
 
-  it('caps internal turns by the available actors and hard limit', () => {
-    expect(normalizeMaxInternalTurns(10, 3)).toBe(3);
-    expect(normalizeMaxInternalTurns(0, 3)).toBe(2);
+  it('treats internal turns as a one-to-eight safety limit', () => {
+    expect(normalizeMaxInternalTurns(10, 3)).toBe(8);
+    expect(normalizeMaxInternalTurns(0, 3)).toBe(1);
     expect(normalizeMaxInternalTurns(undefined, 3)).toBe(2);
   });
 
@@ -64,5 +66,42 @@ describe('MultiLEIA virtual graph', () => {
     expect(prompt).toContain('[Customer]: Recurring bookings are required.');
     expect(prompt).toContain('You are Analyst.');
     expect(prompt).toContain('wait for the participant');
+  });
+
+  it('accepts a valid dynamic route and rejects the current speaker', () => {
+    expect(
+      parseRoutingDecision(
+        { message: '{"nextSpeakerId":"architect"}' },
+        actors,
+        'analyst'
+      )
+    ).toBe('architect');
+    expect(
+      parseRoutingDecision(
+        '{"nextSpeakerId":"participant"}',
+        actors,
+        'architect'
+      )
+    ).toBe('participant');
+    expect(
+      parseRoutingDecision(
+        '{"nextSpeakerId":"analyst"}',
+        actors,
+        'analyst'
+      )
+    ).toBeNull();
+  });
+
+  it('tells the router that the configured value is a maximum', () => {
+    const prompt = buildRoutingPrompt({
+      actors,
+      events: [{ senderName: 'Participant', text: 'Hello' }],
+      currentSpeakerId: 'participant',
+      generatedCount: 0,
+      maxTurns: 5,
+    });
+
+    expect(prompt).toContain('Maximum public LEIA messages this round: 5');
+    expect(prompt).toContain('Eligible LEIAs: customer');
   });
 });

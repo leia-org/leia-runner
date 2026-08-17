@@ -52,6 +52,8 @@ paths:
     $ref: './paths/v1/multi-leias/_sessionId.yaml'
   /v1/multi-leias/{sessionId}/messages:
     $ref: './paths/v1/multi-leias/_sessionId-messages.yaml'
+  /v1/multi-leias/{sessionId}/messages/stream:
+    $ref: './paths/v1/multi-leias/_sessionId-messages-stream.yaml'
   /v1/models:
     $ref: './paths/v1/models/index.yaml'
   /v1/evaluation:
