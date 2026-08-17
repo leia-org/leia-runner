@@ -35,5 +35,18 @@ properties:
   nextActorId:
     type: string
     nullable: true
+  lastPartial:
+    type: object
+    nullable: true
+    properties:
+      turnId:
+        type: string
+      actorId:
+        type: string
+      actorName:
+        type: string
+      timestamp:
+        type: string
+        format: date-time
   lastSequence:
     type: integer

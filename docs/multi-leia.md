@@ -47,3 +47,5 @@ The persisted public event fields are `sequence`, `senderType`, `senderId`, `sen
 - No function-tool continuation inside a MultiLEIA turn.
 - One traversal at a time per session, protected by a Redis lock.
 - A `turnId` acts as an idempotency key for completed Runner turns.
+
+If an actor fails after earlier actors have already answered, Runner returns those saved messages with `partial: true`, records the failed actor in `state.lastPartial`, and makes that actor the opening node of the next traversal. A fully successful traversal clears the partial state.

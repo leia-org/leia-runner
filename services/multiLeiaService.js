@@ -244,6 +244,7 @@ class MultiLeiaService {
         transcript: [],
         processedTurns: [],
         traversal: [],
+        lastPartial: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -284,6 +285,7 @@ class MultiLeiaService {
       openingActorId: runtime.orchestration.openingActorId,
       problemActorId: runtime.orchestration.problemActorId,
       nextActorId: runtime.actors[runtime.nextActorIndex]?.id || null,
+      lastPartial: runtime.lastPartial || null,
       lastSequence: runtime.sequence,
     };
   }
@@ -317,6 +319,7 @@ class MultiLeiaService {
       }
 
       runtime.status = 'running';
+      runtime.lastPartial = null;
       const participantEvent = this.appendEvent(runtime, {
         senderType: 'participant',
         senderId: 'participant',
@@ -385,8 +388,17 @@ class MultiLeiaService {
             throw error;
           }
           runtime.status = 'awaiting_user';
-          runtime.nextActorIndex = plan.nextActorIndex;
+          runtime.nextActorIndex = Math.max(
+            0,
+            runtime.actors.findIndex((candidate) => candidate.id === actor.id)
+          );
           runtime.updatedAt = new Date().toISOString();
+          runtime.lastPartial = {
+            turnId,
+            actorId: actor.id,
+            actorName: actor.name,
+            timestamp: runtime.updatedAt,
+          };
           runtime.processedTurns.push({ turnId, messages: generatedMessages });
           runtime.processedTurns = runtime.processedTurns.slice(-MAX_PROCESSED_TURNS);
           await this.saveRuntime(runtime);
@@ -401,6 +413,7 @@ class MultiLeiaService {
 
       runtime.status = 'awaiting_user';
       runtime.nextActorIndex = plan.nextActorIndex;
+      runtime.lastPartial = null;
       runtime.updatedAt = new Date().toISOString();
       runtime.processedTurns.push({ turnId, messages: generatedMessages });
       runtime.processedTurns = runtime.processedTurns.slice(-MAX_PROCESSED_TURNS);
