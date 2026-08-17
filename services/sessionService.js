@@ -112,6 +112,13 @@ class SessionService {
     }
   }
 
+  async deleteSession(sessionId) {
+    await redisClient.del([
+      `${this.keyPrefix}${sessionId}`,
+      `${this.leiaMetaPrefix}${sessionId}`,
+    ]);
+  }
+
   async sendMessage(sessionId, message, options = {}) {
     try {
       // Get the session
