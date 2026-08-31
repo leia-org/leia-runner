@@ -1,27 +1,12 @@
 const { OpenAI, toFile } = require('openai');
 const { redisClient } = require('../config/redis');
 const apiKeyService = require('./apiKeyService');
+const { normalizeTools } = require('../utils/problemChatTools');
 
 // Same tool wire-format as the LEIA message flow: the FE sends tools as
 // { name, description, parameters }; we return { toolCalls:[{callId,name,arguments}] }
 // and accept { toolResults }. Kept self-contained here so the problem-chat does
 // not depend on the openai-responses provider internals.
-function normalizeTools(tools) {
-  if (!Array.isArray(tools) || tools.length === 0) return null;
-  const out = [];
-  for (const t of tools) {
-    if (!t || typeof t.name !== 'string') continue;
-    out.push({
-      type: 'function',
-      name: t.name,
-      description: typeof t.description === 'string' ? t.description : '',
-      parameters:
-        t.parameters && typeof t.parameters === 'object' ? t.parameters : { type: 'object', properties: {} },
-    });
-  }
-  return out.length > 0 ? out : null;
-}
-
 function extractToolCalls(response) {
   if (!Array.isArray(response?.output)) return [];
   const calls = [];
@@ -59,18 +44,19 @@ const SYSTEM_PROMPT = [
   'You help an instructor design a whole LEIA for an educational platform where students practice by interacting with an AI that simulates a real-world scenario. A LEIA is made of four resources: a PROBLEM (the scenario/task the student works on), a BEHAVIOUR (the role the AI plays opposite the student), a PERSONA (the character the AI embodies), and a RUBRIC (the criteria used to evaluate the student\'s work).',
   'A LEIA problem spec has: description, personaBackground, details, solution, initialSolution, solutionFormat (one of: text, mermaid, yaml, markdown, html, json, xml), evaluationPrompt, process, the advanced composition fields extends/overrides/constrainedTo, and optionally widgets (interactive tools the activity uses).',
   'A behaviour spec has: description (how the AI acts, what it knows/withholds), role, process[], tooltip. A persona spec has: fullName, firstName, description, personality, and pronouns (subjectPronoum/objectPronoum/possesivePronoum/possesiveAdjective).',
-  'A rubric resource has apiVersion "v1", metadata.name, and spec.markdown. The rubric evaluates the student\'s understanding of their own proposed solution: the criteria should assess whether the student can explain, justify and apply the concepts, decisions and trade-offs behind that solution, not only whether the final output looks correct. In every Markdown table, put the performance-level columns explicitly in ascending order from worst to best. The Markdown contains one or more sections with valid tables; each table defines criteria and their performance levels. A section heading may end in [n%] to set its weight. If no section has an explicit weight, all sections have equal weight.',
+  'A rubric resource is structured JSON with apiVersion "v1", metadata.name, and spec.sections. Every section has title, numeric weight, ordered levels, and criteria. Every criterion has a name and one descriptor per level ({level, description}). Section weights must total 100. Levels must be ordered from worst to best. The rubric assesses whether the student can explain, justify and apply the concepts, decisions and trade-offs behind their solution, not only whether the final output looks correct.',
   'Tools, provided by the editor (call get_current_* before modifying an existing resource):',
   '- get_current_problem() / apply_problem(spec): read / write the problem.',
   '- get_current_behaviour() / apply_behaviour(spec): read / write the behaviour.',
   '- get_current_persona() / apply_persona(spec): read / write the persona.',
-  '- get_current_rubric() / apply_rubric(name, markdown): read / write the rubric.',
+  '- get_current_rubric() / apply_rubric(rubric): read / write the complete structured rubric.',
   '- list_personas() / use_persona(id): list the instructor\'s EXISTING personas and reuse one by id when suitable.',
-  'Every apply_* takes a `name` (short kebab-case) — ALWAYS set it so the instructor does not have to rename the resource afterwards.',
+  'Every apply_* must set a short kebab-case resource name. For apply_rubric put it in metadata.name; the other tools use their top-level name argument.',
   'Guidance:',
   '- When the user asks for an activity/LEIA (or attaches a PDF), assemble the WHOLE LEIA: a problem, a behaviour, a persona and a rubric that fit together. Always create a NEW behaviour with apply_behaviour, tailored to the exact problem being created; never reuse or copy an exercise-specific behaviour from a different activity. For the persona, first call list_personas and reuse it with use_persona when suitable, or create one with apply_persona. Write the problem with apply_problem and then create an evaluation rubric with apply_rubric whose criteria directly assess the requested task and solution. Do not wait for the instructor to ask for the rubric separately. If the user only asks a question and does not request an editor change, answer without applying resources.',
   '- The behaviour must be semantically consistent with the current problem, not merely share its broad process tag. Include the actual subject, task and technology or programming language when relevant. For example, a Python exercise about files, APIs or sorting must not receive an anagrams behaviour simply because both are Python exercises.',
   '- Whenever apply_problem creates or materially changes a problem, also call apply_behaviour in the same turn so the editor never keeps a behaviour from the previous exercise.',
+  '- For every process array, "other" is exclusive. Use ["other"] by itself, or use one or more concrete values from "requirements-elicitation" and "game" without "other".',
   '- Whenever apply_problem creates or materially changes a problem for a complete activity, also call apply_rubric in the same turn. The rubric must be specific to the current problem, its learning objectives and the expected solution; never copy an unrelated rubric from a previous activity.',
   '- If the user attaches a PDF and asks to convert it into a problem, read the PDF, reconstruct the scenario, and call apply_problem with a complete spec. If the solution should be a diagram, put valid mermaid in `solution` and set solutionFormat to "mermaid".',
   '- If the user asks to change the current problem, call get_current_problem first, then apply_problem with the updated spec.',
