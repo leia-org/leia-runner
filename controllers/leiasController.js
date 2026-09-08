@@ -106,7 +106,6 @@ function buildInstructionsFromLeia(leia, language) {
   const normalizedLanguage = typeof language === 'string' && language.trim()
     ? language.trim()
     : 'en';
-  console.log(`Normalized language for LEIA instructions: ${normalizedLanguage}`);
   const languageInstruction = `
     The preferred response language is "${normalizedLanguage}".
 
