@@ -3,7 +3,7 @@ const modelManager = require('../models/modelManager');
 
 module.exports.createLeia = async function createLeia(req, res) {
   try {
-    const { sessionId, leia } = req.body;
+    const { sessionId, leia, language } = req.body;
     const runnerConfiguration = req.body.runnerConfiguration || { provider: 'default' };
 
     if (!sessionId || !leia) {
@@ -22,7 +22,7 @@ module.exports.createLeia = async function createLeia(req, res) {
     }
 
     // Extract necessary information from leia for instructions
-    const instructions = buildInstructionsFromLeia(leia);
+    const instructions = buildInstructionsFromLeia(leia, language);
 
     // Determine which model provider to use
     const { provider, modelName, apiKeyId, apiKeyRequesterId } = runnerConfiguration; 
@@ -98,9 +98,36 @@ module.exports.sendLeiaMessage = async function sendLeiaMessage(req, res) {
 /**
  * Builds instructions for the model from the LEIA configuration
  * @param {Object} leia - LEIA configuration
+ * @param {string} language - The language of the LEIA
  * @returns {string} - Instructions for the model
  */
-function buildInstructionsFromLeia(leia) {
-  let instructions = leia.spec?.behaviour?.spec?.description || '';
-  return instructions;
+function buildInstructionsFromLeia(leia, language) {
+  const behaviourDescription = leia.spec?.behaviour?.spec?.description || '';
+  const normalizedLanguage = typeof language === 'string' && language.trim()
+    ? language.trim()
+    : 'en';
+  console.log(`Normalized language for LEIA instructions: ${normalizedLanguage}`);
+  const languageInstruction = `
+    The preferred response language is "${normalizedLanguage}".
+
+    Interpret this value as a language or locale identifier. It may be provided as:
+    - ISO 639-1 language codes: "en", "es", "de", "fr", "it", "pt", etc.
+    - Locale codes: "en-US", "en-GB", "es-ES", "es-MX", "de-DE", etc.
+    - Full language names: "English", "Spanish", "German", "French", etc.
+    - Language names in other languages: "inglés", "español", "alemán", "francés", etc.
+
+    For example:
+    - "en" means English.
+    - "en-US" means American English.
+    - "en-GB" means British English.
+    - "es" means Spanish.
+    - "es-ES" means Spanish from Spain.
+    - "de" means German.
+    - "de-DE" means German from Germany.
+
+    By default, respond in the language specified by this value.
+    If the user clearly speaks to you in another language and is expecting a response in that language, respond in that language instead.
+    `;
+
+  return [languageInstruction, behaviourDescription].filter(Boolean).join('\n\n');
 }
