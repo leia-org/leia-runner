@@ -53,23 +53,30 @@ function extractResponseText(response) {
 const STORE_PREFIX = 'problemchat:';
 const TTL_SECONDS = 6 * 60 * 60; // 6h — design-time assistant, ephemeral.
 
-// Design-time assistant. The editor registers all tools (get_current_problem/
-// apply_problem, get_current_behaviour/apply_behaviour, get_current_persona/
-// apply_persona); here we only describe how/when to use them.
-const SYSTEM_PROMPT = [
+// Design-time assistant. Tool availability is role-dependent: basic users can
+// select a Behaviour but cannot author the base resource.
+const BASE_SYSTEM_PROMPT = [
   'You help an instructor design a whole LEIA for an educational platform where students practice by interacting with an AI that simulates a real-world scenario. A LEIA is made of three resources: a PROBLEM (the scenario/task the student works on), a BEHAVIOUR (the role the AI plays opposite the student) and a PERSONA (the character the AI embodies).',
   'A LEIA problem spec has: description, personaBackground, details, solution, initialSolution, solutionFormat (one of: text, mermaid, yaml, markdown, html, json, xml), evaluationPrompt, process, the advanced composition fields extends/overrides/constrainedTo, and optionally widgets (interactive tools the activity uses).',
   'A behaviour spec has: description (how the AI acts, what it knows/withholds), role, process[], tooltip. A persona spec has: fullName, firstName, description, personality, and pronouns (subjectPronoum/objectPronoum/possesivePronoum/possesiveAdjective).',
-  'Tools, provided by the editor (call get_current_* before modifying an existing resource):',
+  'Tools, provided by the editor:',
   '- get_current_problem() / apply_problem(spec): read / write the problem.',
-  '- get_current_behaviour() / apply_behaviour(spec): read / write the behaviour.',
+  '- get_current_behaviour(): read the selected behaviour. apply_behaviour is available only when the current user may author Behaviour resources.',
   '- get_current_persona() / apply_persona(spec): read / write the persona.',
+  '- list_problems() / use_problem(id): list accessible EXISTING problems and select one.',
+  '- list_behaviours() / use_behaviour(id): list accessible EXISTING behaviours and select one.',
   '- list_personas() / use_persona(id): list the instructor\'s EXISTING personas and reuse one by id when suitable.',
   'Every apply_* takes a `name` (short kebab-case) — ALWAYS set it so the instructor does not have to rename the resource afterwards.',
-  'Guidance:',
-  '- When the user asks for an activity/LEIA (or attaches a PDF), assemble the WHOLE LEIA: a problem, a behaviour and a persona that fit together. Always create a NEW behaviour with apply_behaviour, tailored to the exact problem being created; never reuse or copy an exercise-specific behaviour from a different activity. For the persona, first call list_personas and reuse it with use_persona when suitable, or create one with apply_persona. Write the problem with apply_problem. If the user only asks a question and does not request an editor change, answer without applying resources.',
-  '- The behaviour must be semantically consistent with the current problem, not merely share its broad process tag. Include the actual subject, task and technology or programming language when relevant. For example, a Python exercise about files, APIs or sorting must not receive an anagrams behaviour simply because both are Python exercises.',
-  '- Whenever apply_problem creates or materially changes a problem, also call apply_behaviour in the same turn so the editor never keeps a behaviour from the previous exercise.',
+  'Mandatory reuse-first workflow:',
+  '- When the user asks for an activity/LEIA (or attaches a PDF), infer the requested scenario, learning objective, process, expected solution, AI role and persona before choosing resources.',
+  '- Before creating a Problem, call list_problems. Use use_problem when an existing Problem materially matches the scenario, learning objective and expected output. Call apply_problem only after inspecting the list and only when no suitable Problem exists. A merely related topic is not a match.',
+  '- After the final Problem is selected or created, call list_behaviours. Use use_behaviour when an existing Behaviour has the needed role and its process list exactly matches the Problem process. Do not require exercise-specific wording when a generic reusable role already supplies the right interaction pattern.',
+  '- Before creating a Persona, call list_personas. Use use_persona when an existing character can naturally play the requested role. Call apply_persona only when no suitable Persona exists.',
+  '- A list_* call and its corresponding apply_* call MUST NOT be made in the same response. Call list_*, wait for its tool result, inspect that result, and only then decide between use_* and apply_*.',
+  '- Call use_problem/use_behaviour/use_persona only with an id present in the corresponding latest list_* result. Once apply_* succeeds, keep that newly created resource; never pass an invented or newly created id to use_*.',
+  '- Never create a near-duplicate merely to change a name, phrasing, subject example or other non-material detail. Prefer an existing resource plus the Problem composition fields when appropriate.',
+  '- If a different Problem is selected or created, do not silently retain an old Behaviour. Explicitly select a compatible Behaviour after searching the library.',
+  '- If the user only asks a question and does not request an editor change, answer without applying resources.',
   '- If the user attaches a PDF and asks to convert it into a problem, read the PDF, reconstruct the scenario, and call apply_problem with a complete spec. If the solution should be a diagram, put valid mermaid in `solution` and set solutionFormat to "mermaid".',
   '- If the user asks to change the current problem, call get_current_problem first, then apply_problem with the updated spec.',
   '- Keep description/personaBackground/details/solution internally consistent. Template tags like {{persona.firstName}} may be used where natural.',
@@ -78,7 +85,21 @@ const SYSTEM_PROMPT = [
   '- Add widgets ONLY when the activity needs an interactive tool (e.g. a coding exercise needs the code editor). The apply_problem tool lists the available widgets and their tool functions; for each tool you may set enabled and a usage note describing when LEIA should use it.',
   '- After applying, briefly summarise what you created or changed. If you cannot produce a valid problem (e.g. the PDF is empty or unreadable), explain why instead of calling apply_problem.',
   'Always respond in the same language as the user or the attached document.',
-].join('\n');
+];
+
+function buildSystemPrompt(tools) {
+  const toolNames = new Set(
+    (Array.isArray(tools) ? tools : [])
+      .map((tool) => tool?.name)
+      .filter((name) => typeof name === 'string'),
+  );
+  const canAuthorBehaviour = toolNames.has('apply_behaviour');
+  const behaviourRule = canAuthorBehaviour
+    ? '- You may call apply_behaviour only after list_behaviours proves there is no suitable existing Behaviour. Its process must exactly match the final Problem process.'
+    : '- You cannot author or edit the base Behaviour resource. Never request apply_behaviour. Select an existing Behaviour with use_behaviour only if its role is suitable and its process exactly matches the Problem. If the list contains no compatible Behaviour, do not select an approximate one and do not keep trying other tools: leave Behaviour unselected and immediately explain that an advanced user or administrator must create it. You may still use extends, overrides or constrainedTo inside the Problem to customize a compatible selected Behaviour for this activity.';
+
+  return [...BASE_SYSTEM_PROMPT, behaviourRule].join('\n');
+}
 
 class ProblemChatService {
   _key(chatId) {
@@ -169,7 +190,10 @@ class ProblemChatService {
       model,
       input,
       store: true,
-      instructions: SYSTEM_PROMPT,
+      instructions: buildSystemPrompt(normalizedTools),
+      // Resource selection is order-sensitive: the model must receive a
+      // list_* result before it can safely choose use_* or apply_*.
+      parallel_tool_calls: false,
     };
     if (session.responseId) payload.previous_response_id = session.responseId;
     if (normalizedTools) payload.tools = normalizedTools;
@@ -191,3 +215,5 @@ class ProblemChatService {
 }
 
 module.exports = new ProblemChatService();
+module.exports.buildSystemPrompt = buildSystemPrompt;
+module.exports.normalizeTools = normalizeTools;
