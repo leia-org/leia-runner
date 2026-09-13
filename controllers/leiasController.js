@@ -1,9 +1,11 @@
 const sessionService = require('../services/sessionService');
 const modelManager = require('../models/modelManager');
+const { instantiateLeia, buildReflectiveInstructions } = require('../utils/reflective.cjs');
 
 module.exports.createLeia = async function createLeia(req, res) {
   try {
-    const { sessionId, leia, language } = req.body;
+    const { sessionId, language } = req.body;
+    let leia = req.body.leia;
     const runnerConfiguration = req.body.runnerConfiguration || { provider: 'default' };
 
     if (!sessionId || !leia) {
@@ -21,6 +23,7 @@ module.exports.createLeia = async function createLeia(req, res) {
       });
     }
 
+    leia = instantiateLeia(leia, req.body.reflectiveContext);
     // Extract necessary information from leia for instructions
     const instructions = buildInstructionsFromLeia(leia, language);
 
@@ -65,7 +68,7 @@ module.exports.createLeia = async function createLeia(req, res) {
     });
   } catch (error) {
     console.error('Error creating LEIA:', error);
-    res.status(500).send({ error: 'Internal error creating LEIA' });
+    res.status(error.statusCode || 500).send({ error: error.statusCode === 400 ? error.message : 'Internal error creating LEIA' });
   }
 };
 
@@ -102,7 +105,7 @@ module.exports.sendLeiaMessage = async function sendLeiaMessage(req, res) {
  * @returns {string} - Instructions for the model
  */
 function buildInstructionsFromLeia(leia, language) {
-  const behaviourDescription = leia.spec?.behaviour?.spec?.description || '';
+  const behaviourDescription = buildReflectiveInstructions(leia);
   const normalizedLanguage = typeof language === 'string' && language.trim()
     ? language.trim()
     : 'en';

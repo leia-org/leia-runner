@@ -73,6 +73,15 @@ properties:
                     type: string
                   tooltip:
                     type: string
+                  reflective:
+                    type: boolean
+                    default: false
+                  evaluationPrompt:
+                    type: string
+                    description: Required and non-empty for Reflective LEIA.
+                  stoppingPrompt:
+                    type: string
+                    description: Required and non-empty for Reflective LEIA. The model concludes the interview according to this instruction.
                   process:
                     type: array
                     items:
@@ -93,6 +102,23 @@ properties:
     description: LEIA configuration object.
   runnerConfiguration:
     $ref: '../common/runnerConfiguration.yaml'
+  reflectiveContext:
+    type: object
+    description: Runtime-only context, required for Reflective LEIA; alternatively embedded in leia.spec.reflectiveContext by Workbench.
+    required: [previousConversation, previousSolution]
+    properties:
+      previousConversation:
+        type: array
+        items:
+          type: object
+          properties:
+            role:
+              type: string
+              enum: [user, assistant]
+            content:
+              type: string
+      previousSolution:
+        type: string
 required:
   - sessionId
   - leia
