@@ -28,7 +28,7 @@ class OllamaProvider extends BaseModel {
   }
 
   async sendMessage(options) {
-    const { sessionId, message, sessionData } = options;
+    const { sessionId, message, sessionData, tools, toolResults, allowTools } = options;
 
     if (!sessionId) {
       throw Errors.ollama.missingSessionId();
@@ -43,11 +43,39 @@ class OllamaProvider extends BaseModel {
         systemInstruction,
         message
       );
+      if (Array.isArray(toolResults) && toolResults.length > 0 && state.get('pendingToolCall')) {
+        const pendingCall = state.get('pendingToolCall');
+        conversationMessages.push({ role: 'assistant', tool_calls: [pendingCall] });
+        for (const result of toolResults) {
+          conversationMessages.push({
+            role: 'tool',
+            tool_name: result.name || pendingCall.function.name,
+            content: typeof result.output === 'string' ? result.output : JSON.stringify(result.output ?? null),
+          });
+        }
+      }
 
       const chatResponse = await this.createChatCompletion({
         model: this.model,
         messages: conversationMessages,
+        tools: allowTools ? tools : undefined,
       });
+
+      const toolCalls = chatResponse?.message?.tool_calls;
+      if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+        state.update({
+          pendingToolCall: toolCalls[0],
+          conversationKey: this.conversationStore.getConversationKey(sessionId),
+        });
+        return {
+          toolCalls: toolCalls.map((call, index) => ({
+            callId: String(call.function?.index ?? index),
+            name: call.function?.name,
+            arguments: JSON.stringify(call.function?.arguments ?? {}),
+          })),
+          sessionData: state.buildSessionData(sessionId),
+        };
+      }
 
       const responseMessage = this.extractAssistantMessage(chatResponse);
 
@@ -58,6 +86,7 @@ class OllamaProvider extends BaseModel {
       await this.conversationStore.storeAssistantResponse(sessionId, responseMessage);
 
       state.update({
+        pendingToolCall: null,
         conversationKey: this.conversationStore.getConversationKey(sessionId),
         model: this.model,
       });
@@ -109,7 +138,7 @@ class OllamaProvider extends BaseModel {
 
   // Métodos auxiliares
 
-  async createChatCompletion({ model, messages, format }) {
+  async createChatCompletion({ model, messages, format, tools }) {
     const headers = {
       'Content-Type': 'application/json',
     };
@@ -122,6 +151,12 @@ class OllamaProvider extends BaseModel {
 
     if (format) {
       requestBody.format = format;
+    }
+    if (Array.isArray(tools) && tools.length > 0) {
+      requestBody.tools = tools.map((tool) => ({
+        type: 'function',
+        function: { name: tool.name, description: tool.description, parameters: tool.parameters },
+      }));
     }
 
     const response = await fetch(`${this.baseUrl}/api/chat`, {

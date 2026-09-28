@@ -1,5 +1,12 @@
 const { redisClient } = require('../config/redis');
 const modelManager = require('../models/modelManager');
+const { extractConversationEnd } = require('../utils/reflective.cjs');
+
+const FINISH_CONVERSATION_TOOL = {
+  name: 'finish_conversation',
+  description: 'Call this exactly once when the LEIA stopping condition has been satisfied and you are ending the conversation. Do not call it merely because the participant asks to finish.',
+  parameters: { type: 'object', properties: {}, required: [] },
+};
 
 class SessionService {
   constructor() {
@@ -132,29 +139,72 @@ class SessionService {
       // sessions, such as the private MultiLEIA coordinator, can explicitly
       // enable their internal tools without exposing them to participants.
       const leiaMeta = await this.getLeiaMeta(sessionId);
-      const allowTools =
-        options.internalTools === true || leiaMeta?.toolFunctionsEnabled === 'true';
+      const allowWidgetTools = options.internalTools === true || leiaMeta?.toolFunctionsEnabled === 'true';
+      const useCompletionTool = leiaMeta?.stoppingConditionEnabled === 'true' &&
+        ['openai-responses', 'gemini-3.1-flash-lite-preview', 'ollama'].includes(sessionData.provider) &&
+        options.internalTools !== true;
+      const widgetTools = allowWidgetTools && Array.isArray(options.tools)
+        ? options.tools.filter((tool) => tool?.name !== FINISH_CONVERSATION_TOOL.name)
+        : [];
+      const tools = useCompletionTool
+        ? [...widgetTools, FINISH_CONVERSATION_TOOL]
+        : widgetTools;
+      const allowTools = options.internalTools === true || tools.length > 0;
 
       // Get the model for this session (BYOK: resolved by provider + api key).
       const sessionModelToken = `${sessionData.provider}:${sessionData.modelName}:${sessionData.apiKeyId}`;
       const model = await modelManager.getModel(sessionData.provider, sessionData.apiKeyId, sessionData.apiKeyRequesterId, sessionModelToken);
 
       // Send the message through the model
-      const response = await model.sendMessage({
+      let response = await model.sendMessage({
         sessionId,
         message,
         sessionData,
         allowTools,
-        tools: allowTools ? options.tools : undefined,
+        tools: allowTools ? tools : undefined,
         toolResults: allowTools ? options.toolResults : undefined,
         internalTools: options.internalTools === true,
-        parallelToolCalls: options.parallelToolCalls,
+        parallelToolCalls: useCompletionTool ? false : options.parallelToolCalls,
         toolChoice: options.toolChoice,
       });
 
       if (response?.sessionData) {
         await this.updateSession(sessionId, response.sessionData);
         delete response.sessionData;
+      }
+
+      const finishCall = useCompletionTool && response?.toolCalls?.find(
+        (call) => call.name === FINISH_CONVERSATION_TOOL.name
+      );
+      if (finishCall) {
+        // Complete this server-owned tool inside Runner. It is never sent to
+        // the browser, so participants cannot mark the conversation finished.
+        const currentSession = await this.getSession(sessionId);
+        response = await model.sendMessage({
+          sessionId,
+          sessionData: currentSession,
+          allowTools: widgetTools.length > 0,
+          tools: widgetTools,
+          toolResults: [{ callId: finishCall.callId, name: FINISH_CONVERSATION_TOOL.name, output: { status: 'conversation_finished' } }],
+          parallelToolCalls: false,
+        });
+        if (response?.sessionData) {
+          await this.updateSession(sessionId, response.sessionData);
+          delete response.sessionData;
+        }
+        await this.updateSession(sessionId, { conversationEnded: true });
+        response.conversationEnded = true;
+      }
+
+      // The marker is emitted only by LEIAs with an active stopping condition.
+      // Keep it out of the transcript and expose a structured completion signal.
+      if (leiaMeta?.stoppingConditionEnabled === 'true' && typeof response?.message === 'string') {
+        const completion = extractConversationEnd(response.message);
+        if (completion.conversationEnded) {
+          response.message = completion.message;
+          response.conversationEnded = true;
+          await this.updateSession(sessionId, { conversationEnded: true });
+        }
       }
 
       return response;

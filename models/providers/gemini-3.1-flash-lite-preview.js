@@ -25,28 +25,49 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
   }
 
   async sendMessage(options) {
-    const { message, sessionData } = options;
+    const { message, sessionData, tools, toolResults, allowTools } = options;
     const state = new ProviderState(sessionData);
     const systemInstruction = state.getSystemInstruction();
     const previousInteractionId = state.get('previousInteractionId') || state.threadId;
 
     try {
+      const input = Array.isArray(toolResults) && toolResults.length > 0
+        ? toolResults.map((result) => ({
+            type: 'function_result',
+            name: result.name,
+            call_id: result.callId,
+            result: [{ type: 'text', text: typeof result.output === 'string' ? result.output : JSON.stringify(result.output ?? null) }],
+          }))
+        : message;
       const interaction = await this.createInteraction({
         model: this.model,
-        input: message,
+        input,
         systemInstruction,
-        previousInteractionId
+        previousInteractionId,
+        tools: allowTools ? tools : undefined,
       });
+
+      const toolCalls = Array.isArray(interaction.steps)
+        ? interaction.steps.filter((step) => step?.type === 'function_call').map((step) => ({
+            callId: step.id,
+            name: step.name,
+            arguments: JSON.stringify(step.arguments ?? {}),
+          }))
+        : [];
+
+      state.update({ previousInteractionId: interaction.id || previousInteractionId });
+      if (toolCalls.length > 0) {
+        return {
+          toolCalls,
+          sessionData: state.buildSessionData(interaction.id || previousInteractionId),
+        };
+      }
 
       const responseMessage = this.extractTextFromInteraction(interaction);
 
       if (!responseMessage) {
         throw Errors.gemini.noTextContent();
       }
-
-      state.update({
-        previousInteractionId: interaction.id || previousInteractionId
-      });
 
       return {
         message: responseMessage,
@@ -120,7 +141,7 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
     .join('\n\n');
   }
 
-  async createInteraction({ model, input, systemInstruction, previousInteractionId, responseFormat }) {
+  async createInteraction({ model, input, systemInstruction, previousInteractionId, responseFormat, tools }) {
     const requestBody = {
       model,
       input
@@ -136,6 +157,15 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
 
     if (responseFormat) {
       requestBody.response_format = responseFormat;
+    }
+
+    if (Array.isArray(tools) && tools.length > 0) {
+      requestBody.tools = tools.map((tool) => ({
+        type: 'function',
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+      }));
     }
 
     const interaction = await this.getClient().interactions.create(requestBody);

@@ -50,15 +50,25 @@ function instantiateLeia(template, context) {
   return deepFreeze(instance);
 }
 
-function buildReflectiveInstructions(leia) {
+function buildReflectiveInstructions(leia, { completionTool = false } = {}) {
   const behaviour = leia.spec?.behaviour?.spec || {};
   const { stoppingCondition, speaksFirst } = behaviour.conversationDynamics || {};
   return [
     behaviour.description,
     stoppingCondition?.enabled && stoppingCondition.prompt?.trim() && `Stopping instructions: ${stoppingCondition.prompt}`,
-    stoppingCondition?.enabled && stoppingCondition.prompt?.trim() && 'When the stopping instructions are satisfied, conclude the conversation.',
+    stoppingCondition?.enabled && stoppingCondition.prompt?.trim() && (completionTool
+      ? 'When the stopping instructions are satisfied, call finish_conversation exactly once. Use this tool only after you have decided that the conversation is complete. Then give a final reply to the participant.'
+      : 'When the stopping instructions are satisfied, conclude the conversation. Append [LEIA_CONVERSATION_ENDED] at the very end of that final reply only. Never include this marker before the conversation is over.'),
     speaksFirst?.enabled && `Start the conversation yourself. ${speaksFirst.prompt || ''}`,
   ].filter(Boolean).join('\n\n');
 }
 
-module.exports = { instantiateLeia, buildReflectiveInstructions, deepFreeze };
+function extractConversationEnd(message) {
+  if (typeof message !== 'string') return { message, conversationEnded: false };
+  const marker = /\s*\[LEIA_CONVERSATION_ENDED\]\s*$/;
+  return marker.test(message)
+    ? { message: message.replace(marker, '').trimEnd(), conversationEnded: true }
+    : { message, conversationEnded: false };
+}
+
+module.exports = { instantiateLeia, buildReflectiveInstructions, extractConversationEnd, deepFreeze };

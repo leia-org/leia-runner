@@ -25,20 +25,16 @@ module.exports.createLeia = async function createLeia(req, res) {
 
     leia = instantiateLeia(leia, req.body.reflectiveContext);
     // Extract necessary information from leia for instructions
-    const instructions = buildInstructionsFromLeia(leia, language);
+    const instructions = buildInstructionsFromLeia(leia, language, runnerConfiguration.provider);
 
     // Determine which model provider to use
     const { provider, modelName, apiKeyId, apiKeyRequesterId } = runnerConfiguration; 
     // Create session with the specified provider
     const sessionData = await sessionService.createSession(sessionId, instructions,modelName, provider, apiKeyId, apiKeyRequesterId);
 
-    // Activity-level toolfunctions gate. Tools are honored only when:
-    //   - the activity declares at least one widget, AND
-    //   - the active runner provider implements function tools — which
-    //     in this runner is `openai-responses` only (Gemini text /
-    //     Ollama ignore the tools array).
-    // luke voice mode goes through a different stack (luke-server) and
-    // is not gated here.
+    // Widget tools require an authored widget and the OpenAI Responses
+    // provider. The server-owned finish_conversation tool is separate and
+    // is enabled for text providers when stopping is active.
     //
     // Widgets now live in the problem definition (authored in the designer)
     // and ride here inside leia.spec.problem.spec.widgets. We fall back to the
@@ -59,6 +55,7 @@ module.exports.createLeia = async function createLeia(req, res) {
       solutionFormat: leia.spec?.problem?.spec?.solutionFormat || 'text',
       evaluationPrompt: leia.spec?.problem?.spec?.evaluationPrompt || '',
       toolFunctionsEnabled: toolFunctionsEnabled ? 'true' : 'false',
+      stoppingConditionEnabled: leia.spec?.behaviour?.spec?.conversationDynamics?.stoppingCondition?.enabled ? 'true' : 'false',
     });
 
     res.status(201).send({
@@ -104,8 +101,8 @@ module.exports.sendLeiaMessage = async function sendLeiaMessage(req, res) {
  * @param {string} language - The language of the LEIA
  * @returns {string} - Instructions for the model
  */
-function buildInstructionsFromLeia(leia, language) {
-  const behaviourDescription = buildReflectiveInstructions(leia);
+function buildInstructionsFromLeia(leia, language, provider) {
+  const behaviourDescription = buildReflectiveInstructions(leia, { completionTool: ['openai-responses', 'gemini-3.1-flash-lite-preview', 'ollama'].includes(provider) });
   const normalizedLanguage = typeof language === 'string' && language.trim()
     ? language.trim()
     : 'en';
