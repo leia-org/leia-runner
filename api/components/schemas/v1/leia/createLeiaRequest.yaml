@@ -73,15 +73,25 @@ properties:
                     type: string
                   tooltip:
                     type: string
-                  reflective:
-                    type: boolean
-                    default: false
-                  evaluationPrompt:
-                    type: string
-                    description: Required and non-empty for Reflective LEIA.
-                  stoppingPrompt:
-                    type: string
-                    description: Required and non-empty for Reflective LEIA. The model concludes the interview according to this instruction.
+                  conversationDynamics:
+                    type: object
+                    properties:
+                      stoppingCondition:
+                        type: object
+                        properties:
+                          enabled:
+                            type: boolean
+                          prompt:
+                            type: string
+                            description: Required when enabled is true.
+                      speaksFirst:
+                        type: object
+                        properties:
+                          enabled:
+                            type: boolean
+                          prompt:
+                            type: string
+                            description: Optional guidance for the first LEIA message.
                   process:
                     type: array
                     items:
@@ -104,7 +114,7 @@ properties:
     $ref: '../common/runnerConfiguration.yaml'
   reflectiveContext:
     type: object
-    description: Runtime-only context, required for Reflective LEIA; alternatively embedded in leia.spec.reflectiveContext by Workbench.
+    description: Runtime context when the behaviour references the previous conversation; alternatively embedded in leia.spec.reflectiveContext by Workbench.
     required: [previousConversation, previousSolution]
     properties:
       previousConversation:

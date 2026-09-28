@@ -148,9 +148,6 @@ class MultiLeiaService {
       if (!input?.leia || !input?.runnerConfiguration) {
         throw createError(`Actor ${id} requires leia and runnerConfiguration`);
       }
-      if (input.leia.spec?.behaviour?.spec?.reflective) {
-        throw createError('Reflective LEIA requires sequential LN → LR sessions');
-      }
       if (input.runnerConfiguration.audioMode) {
         throw createError('MultiLEIA currently supports text mode only');
       }
