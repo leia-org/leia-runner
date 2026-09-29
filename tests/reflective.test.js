@@ -13,6 +13,16 @@ const template = () => ({ spec: { behaviour: { spec: {
 const context = (solution) => ({ previousConversation: [{ role: 'user', content: 'My question' }], previousSolution: solution });
 
 describe('Contextual LEIA instantiation', () => {
+  test('resolves arbitrary declared previousStage artifacts from the stored snapshot', () => {
+    const source = template();
+    source.spec.behaviour.spec.description = '{{previousStage.content}} / {{previousStage.score}}';
+    source.spec.previousStage = { content: 'Read {{previousStage.notATemplate}}', score: 4 };
+    source.spec.behaviour.spec.conversationDynamics.stoppingCondition = { enabled: false, prompt: '{{previousStage.missing}}' };
+    const result = instantiateLeia(source);
+    expect(result.spec.behaviour.spec.description).toBe('Read {{previousStage.notATemplate}} / 4');
+    expect(buildReflectiveInstructions(result)).not.toContain('missing');
+    expect(source.spec.behaviour.spec.description).toContain('{{previousStage.content}}');
+  });
   test('resolves context and composes optional stopping and opening instructions', () => {
     const result = instantiateLeia(template(), context('My submitted solution'));
     const prompt = buildReflectiveInstructions(result);

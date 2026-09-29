@@ -22,17 +22,16 @@ function instantiateLeia(template, context) {
       Object.entries(dynamics).filter(([, dynamic]) => dynamic?.enabled)
     ),
   };
-  const usesContext = /{{\s*reflectiveContext\./.test(JSON.stringify(activeBehaviour));
+  const usesContext = /{{\s*(?:reflectiveContext|previousStage)\./.test(JSON.stringify(activeBehaviour));
   if (!usesContext) return deepFreeze(instance);
-  const values = context || instance.spec.reflectiveContext;
-  if (!values || !Array.isArray(values.previousConversation) ||
-      typeof values.previousSolution !== 'string') {
+  const values = context || instance.spec.previousStage || instance.spec.reflectiveContext;
+  if (!values || typeof values !== 'object') {
     fail('LEIA requires the previous conversation context');
   }
   const replace = (value) => {
     if (typeof value === 'string') {
-      return value.replace(/{{\s*reflectiveContext\.([\w]+)\s*}}/g, (_, key) => {
-        if (!['previousConversation', 'previousSolution'].includes(key)) {
+      return value.replace(/{{\s*(?:reflectiveContext|previousStage)\.([\w]+)\s*}}/g, (_, key) => {
+        if (!Object.hasOwn(values, key) || ['__proto__', 'constructor', 'prototype'].includes(key)) {
           fail(`Unknown reflective context field: ${key}`);
         }
         return typeof values[key] === 'string' ? values[key] : JSON.stringify(values[key]);
@@ -45,7 +44,11 @@ function instantiateLeia(template, context) {
     return value;
   };
   // Resolve authored behaviour only, once. Student text is data, never a template.
-  instance.spec.behaviour.spec = replace(behaviour);
+  instance.spec.behaviour.spec = replace(activeBehaviour);
+  instance.spec.behaviour.spec.conversationDynamics = {
+    ...dynamics, ...instance.spec.behaviour.spec.conversationDynamics,
+  };
+  instance.spec.previousStage = structuredClone(values);
   instance.spec.reflectiveContext = structuredClone(values);
   return deepFreeze(instance);
 }

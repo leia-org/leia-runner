@@ -112,9 +112,13 @@ properties:
     description: LEIA configuration object.
   runnerConfiguration:
     $ref: '../common/runnerConfiguration.yaml'
+  previousStage:
+    type: object
+    additionalProperties: true
+    description: Declared artifacts from the immediately preceding stage, supplied by Workbench; alternatively embedded in leia.spec.previousStage.
   reflectiveContext:
     type: object
-    description: Runtime context when the behaviour references the previous conversation; alternatively embedded in leia.spec.reflectiveContext by Workbench.
+    description: Deprecated alias for previousStage, retained for saved templates and older clients.
     required: [previousConversation, previousSolution]
     properties:
       previousConversation:

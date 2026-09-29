@@ -7,6 +7,16 @@ const sessionService = require('../services/sessionService');
 const modelManager = require('../models/modelManager');
 const { redisClient } = require('../config/redis');
 
+it('instantiates each MultiLEIA actor using its previousStage snapshot', () => {
+  const actors = ['a', 'b'].map((id) => ({ id,
+    leia: { spec: { previousStage: { previousSolution: `solution-${id}` }, behaviour: { spec: { description: '{{previousStage.previousSolution}}' } } } },
+    runnerConfiguration: { modelName: 'model', apiKeyId: 'key', apiKeyRequesterId: 'owner' },
+  }));
+  const result = multiLeiaService.normalizeActors(actors);
+  expect(result.map((actor) => actor.leia.spec.behaviour.spec.description)).toEqual(['solution-a', 'solution-b']);
+  expect(actors[0].leia.spec.behaviour.spec.description).toBe('{{previousStage.previousSolution}}');
+});
+
 function orchestratorToolCall(index, callId, instruction, targetId = 'participant') {
   return {
     toolCalls: [

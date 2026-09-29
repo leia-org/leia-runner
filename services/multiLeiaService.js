@@ -1,3 +1,4 @@
+const { instantiateLeia } = require('../utils/reflective.cjs');
 const { randomUUID } = require('crypto');
 const { redisClient } = require('../config/redis');
 const sessionService = require('./sessionService');
@@ -159,6 +160,7 @@ class MultiLeiaService {
         throw createError(`Actor ${id} has an invalid runner configuration`);
       }
 
+      input = { ...input, leia: instantiateLeia(input.leia) };
       return {
         id,
         name: readString(input.name) || getActorName(input.leia, `LEIA ${index + 1}`),

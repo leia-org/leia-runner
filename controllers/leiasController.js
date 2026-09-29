@@ -23,7 +23,7 @@ module.exports.createLeia = async function createLeia(req, res) {
       });
     }
 
-    leia = instantiateLeia(leia, req.body.reflectiveContext);
+    leia = instantiateLeia(leia, req.body.previousStage || req.body.reflectiveContext);
     // Extract necessary information from leia for instructions
     const instructions = buildInstructionsFromLeia(leia, language, runnerConfiguration.provider);
 
