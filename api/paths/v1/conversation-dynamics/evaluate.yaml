@@ -9,8 +9,20 @@ post:
       application/json:
         schema:
           type: object
-          required: [condition, transcript]
+          required: [condition, transcript, runnerConfiguration]
           properties:
+            runnerConfiguration:
+              type: object
+              required: [apiKeyId, apiKeyRequesterId, modelName]
+              properties:
+                provider:
+                  type: string
+                modelName:
+                  type: string
+                apiKeyId:
+                  type: string
+                apiKeyRequesterId:
+                  type: string
             condition:
               type: string
               minLength: 1

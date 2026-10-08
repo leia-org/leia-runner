@@ -2,16 +2,20 @@ const z = require('zod');
 const generation = require('../services/structuredGenerationService');
 const Decision = z.object({ satisfied: z.boolean() });
 
-export const evaluate = async (req, res) => {
+exports.evaluate = async (req, res) => {
   try {
     
-    const { condition, transcript, behaviour } = req.body;
+    const { condition, transcript, behaviour, runnerConfiguration } = req.body;
     
     if (typeof condition !== 'string' || !condition.trim() || !Array.isArray(transcript)) {
       return res.status(400).json({ error: 'Condition and transcript are required' });
     }
     
+    if (!runnerConfiguration?.apiKeyId || !runnerConfiguration?.apiKeyRequesterId || !runnerConfiguration?.modelName) {
+      return res.status(400).json({ error: 'BYOK runnerConfiguration is required' });
+    }
     const result = await generation.generateObject({
+      runnerConfiguration,
       systemPrompt: [
         'You are LEIA deciding whether to end your conversation with a student.',
         'Evaluate ONLY the instructor stopping condition against the recorded conversation.',
