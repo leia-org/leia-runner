@@ -2,14 +2,12 @@ name: Provider Integration Tests
 
 on:
   pull_request:
-    branches:
-      - develop
-      - main
     types:
       - opened
       - synchronize
       - reopened
       - ready_for_review
+      - edited
 
 permissions:
   contents: read
