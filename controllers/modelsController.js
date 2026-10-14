@@ -1,9 +1,9 @@
 const modelSyncService = require('../services/modelSyncService');
 
 /**
- * Lista los modelos disponibles
- * @param {Object} req - Solicitud HTTP
- * @param {Object} res - Respuesta HTTP
+ * Lists available models
+ * @param {Object} req - HTTP Request
+ * @param {Object} res - HTTP Response
  */
 module.exports.listModels = async function listModels(req, res) {
   try {

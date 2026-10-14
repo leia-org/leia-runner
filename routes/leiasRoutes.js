@@ -64,5 +64,6 @@ router.post('/problems/chat/:chatId/messages', problemChatController.sendProblem
 // Background supervisor (stateless): observe an activity transcript window and
 // return flags (+ optional student nudge). Called fire-and-forget by the workbench.
 router.post('/supervisor', supervisorController.observe);
+router.post('/conversation-dynamics/evaluate', require('../controllers/conversationDynamicsController').evaluate);
 
 module.exports = router;
