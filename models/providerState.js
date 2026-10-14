@@ -1,8 +1,8 @@
 const Errors = require('../utils/errors');
 
 /**
- * Clase para gestionar y validar el estado de los proveedores de IA.
- * Extrae y valida la información de sesión de forma consistente.
+ * Class to manage and validate the state of AI providers.
+ * Extracts and validates session information consistently.
  */
 class ProviderState {
   constructor(sessionData = {}) {
@@ -12,7 +12,7 @@ class ProviderState {
   }
 
   /**
-   * Extrae el objeto providerState de sessionData
+   * Extracts the providerState object from sessionData
    * @private
    * @returns {Object}
    */
@@ -23,8 +23,8 @@ class ProviderState {
   }
 
   /**
-   * Obtiene la instrucción del sistema
-   * @throws {Error} Si la instrucción del sistema no está definida
+   * Gets the system instruction
+   * @throws {Error} If system instruction is not defined
    * @returns {string}
    */
   getSystemInstruction() {
@@ -38,9 +38,9 @@ class ProviderState {
   }
 
   /**
-   * Obtiene el ID de interacción/conversación
-   * Intenta obtenerlo de providerState primero, luego de threadId
-   * @param {string} prefix - Prefijo esperado (ej: 'conv_' para OpenAI)
+   * Gets the interaction/conversation ID
+   * Tries to get it from providerState first, then from threadId
+   * @param {string} prefix - Expected prefix (e.g., 'conv_' for OpenAI)
    * @returns {string}
    */
   getInteractionId(prefix = '') {
@@ -50,7 +50,7 @@ class ProviderState {
       return fromProvider;
     }
 
-    // Fallback: si threadId tiene el prefijo esperado, usarlo
+    // Fallback: if threadId has the expected prefix, use it
     if (prefix && this.threadId.startsWith(prefix)) {
       return this.threadId;
     }
@@ -59,9 +59,9 @@ class ProviderState {
   }
 
   /**
-   * Obtiene una propiedad personalizada del providerState
-   * @param {string} key - Clave de la propiedad
-   * @param {*} defaultValue - Valor por defecto si no existe
+   * Gets a custom property from providerState
+   * @param {string} key - Property key
+   * @param {*} defaultValue - Default value if it doesn't exist
    * @returns {*}
    */
   get(key, defaultValue = '') {
@@ -69,9 +69,9 @@ class ProviderState {
   }
 
   /**
-   * Actualiza el providerState con nuevos valores
-   * @param {Object} updates - Objeto con las actualizaciones
-   * @returns {Object} El providerState actualizado
+   * Updates providerState with new values
+   * @param {Object} updates - Object with updates
+   * @returns {Object} The updated providerState
    */
   update(updates = {}) {
     this.providerState = { ...this.providerState, ...updates };
@@ -79,8 +79,8 @@ class ProviderState {
   }
 
   /**
-   * Construye el sessionData para devolver en respuestas
-   * @param {string} newThreadId - El nuevo threadId (si aplica)
+   * Builds sessionData to return in responses
+   * @param {string} newThreadId - The new threadId (if applicable)
    * @returns {Object}
    */
   buildSessionData(newThreadId = '') {
