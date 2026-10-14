@@ -10,6 +10,9 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite-preview';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+// Set by CI on pull requests from forks, which get no secrets: a missing key
+// skips that provider's test instead of failing it.
+const PROVIDER_KEYS_OPTIONAL = process.env.PROVIDER_KEYS_OPTIONAL === 'true';
 
 const openaiResponsesProvider = new OpenAIResponsesProvider();
 const geminiProvider = new GeminiProvider();
@@ -94,7 +97,7 @@ async function runWithSchemaRetry(action, { maxAttempts = 3 } = {}) {
   throw lastError;
 }
 
-//antes de todos los tests, guardamos el valor original de AI_PROVIDER para restaurarlo después
+// Before all tests, store the original AI_PROVIDER value to restore it later
 beforeAll(() => {
   originalProvider = process.env.AI_PROVIDER;
   if (OPENAI_API_KEY) {
@@ -104,7 +107,7 @@ beforeAll(() => {
     geminiProvider.setApiKey(GEMINI_API_KEY);
   }
 });
-//después de todos los tests, restauramos el valor original de AI_PROVIDER para no afectar otras pruebas o el entorno
+// After all tests, restore the original AI_PROVIDER value to avoid affecting other tests or the environment
 afterAll(() => {
   if (typeof originalProvider === 'undefined') {
     delete process.env.AI_PROVIDER;
@@ -115,7 +118,7 @@ afterAll(() => {
 });
 
 describe('LLM integration tests', () => {
-  test('calls OpenAI structured endpoint successfully', { timeout: 120000 }, async () => {
+  test.skipIf(PROVIDER_KEYS_OPTIONAL && !OPENAI_API_KEY)('calls OpenAI structured endpoint successfully', { timeout: 120000 }, async () => {
     process.env.AI_PROVIDER = 'openai';
 
     const result = await runWithSchemaRetry(async () =>
@@ -146,7 +149,7 @@ describe('LLM integration tests', () => {
     });
   });
 
-  test('calls Gemini structured endpoint successfully', { timeout: 120000 }, async () => {
+  test.skipIf(PROVIDER_KEYS_OPTIONAL && !GEMINI_API_KEY)('calls Gemini structured endpoint successfully', { timeout: 120000 }, async () => {
     process.env.AI_PROVIDER = 'gemini';
 
     const result = await runWithSchemaRetry(async () =>
