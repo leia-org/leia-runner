@@ -128,5 +128,9 @@ function buildInstructionsFromLeia(leia, language) {
     If the user clearly speaks to you in another language and is expecting a response in that language, respond in that language instead.
     `;
 
-  return [languageInstruction, behaviourDescription].filter(Boolean).join('\n\n');
+  const stopping = leia.spec?.behaviour?.spec?.conversationDynamics?.stoppingCondition;
+  const dynamics = stopping?.enabled === true
+    ? `Conversation stopping condition: ${stopping.config.condition}. When met, conclude naturally and tell the student the conversation has ended.`
+    : '';
+  return [languageInstruction, behaviourDescription, dynamics].filter(Boolean).join('\n\n');
 }
