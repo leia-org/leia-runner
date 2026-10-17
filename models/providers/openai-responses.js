@@ -13,7 +13,7 @@ const EvaluationSchema = z.object({
 });
 
 /**
- * Proveedor de OpenAI basado en Responses + Conversations.
+ * Proveedor de OpenAI basado en Responses con previous_response_id.
  */
 class OpenAIResponsesProvider extends BaseModel {
     constructor() {
@@ -40,23 +40,27 @@ class OpenAIResponsesProvider extends BaseModel {
             internalTools,
             parallelToolCalls,
             toolChoice,
+            opening = false,
         } = options;
         const state = new ProviderState(sessionData);
         const baseInstruction = state.getSystemInstruction();
-        let conversationId = state.get('conversationId') || (state.threadId.startsWith('conv_') ? state.threadId : '');
+        const previousResponseId = state.get('lastResponseId') ||
+            (state.threadId.startsWith('resp_') ? state.threadId : '');
+        // Older sessions used Conversations. Prefer their saved response ID;
+        // only use the conversation as a bridge when no response ID was saved.
+        const legacyConversationId = state.get('conversationId') ||
+            (state.threadId.startsWith('conv_') ? state.threadId : '');
 
         try {
-            if (!conversationId) {
-                if (sessionData?.threadId) {
-                    console.warn(
-                        'Sesion legacy de Assistants detectada. Se iniciara una nueva conversacion sin historial previo.'
-                    );
-                }
-
-                const conversation = await this.createConversation();
-                conversationId = conversation.id;
+            const pendingOpening = state.get('openingPending', false) === true;
+            if (opening && pendingOpening) {
+                // The opening reached the provider but its database/UI delivery
+                // may have failed. Return the same generated turn on retry.
+                return { message: state.get('firstAssistantMessage'), sessionData: state.buildSessionData() };
             }
-
+            if (opening && (previousResponseId || legacyConversationId)) {
+                throw Errors.openAI.responseError('La conversacion ya ha comenzado');
+            }
             // Build the input for this turn: either a fresh user message
             // or a batch of function_call_output items continuing a prior
             // tool-call round.
@@ -70,32 +74,46 @@ class OpenAIResponsesProvider extends BaseModel {
             } else {
                 input = [
                     {
-                        role: 'user',
+                        role: opening ? 'developer' : 'user',
                         content: message,
                     },
                 ];
+                if (!opening && pendingOpening) {
+                    // Start the participant dialogue with LEIA's actual speech.
+                    // The isolated startup command must not become user history.
+                    input.unshift({ role: 'assistant', content: state.get('firstAssistantMessage') });
+                }
             }
 
             // Only honor incoming tools when the activity opted-in at
             // session creation time. Otherwise the prompt and request
             // stay tool-free regardless of what the client sends.
-            const normalizedTools = allowTools ? this.normalizeTools(tools) : null;
+            const normalizedTools = allowTools && !opening ? this.normalizeTools(tools) : null;
             // Augment the system instruction per-turn with a tool-usage
             // block so the model is told what each tool is for and when
             // to call it. The augmented text is NOT persisted into state
             // — we keep the base instruction stored and re-augment each
             // turn based on the current tool set.
-            const instructionsForCall = normalizedTools && !internalTools
-                ? this.appendToolUsageBlock(baseInstruction, normalizedTools)
+            const contextInstruction = !internalTools && state.get('firstAssistantMessage')
+                ? this.appendDialogueGrounding(baseInstruction, state.get('firstAssistantMessage'))
                 : baseInstruction;
+            const instructionsForCall = normalizedTools && !internalTools
+                ? this.appendToolUsageBlock(contextInstruction, normalizedTools)
+                : contextInstruction;
 
             const requestPayload = {
                 model: this.model,
-                conversation: conversationId,
                 instructions: instructionsForCall,
                 input,
-                store: true,
+                store: !opening,
             };
+            // Chain to the exact response that produced the previous assistant
+            // turn, including the opening and any pending function calls.
+            if (!pendingOpening && previousResponseId) {
+                requestPayload.previous_response_id = previousResponseId;
+            } else if (!pendingOpening && legacyConversationId) {
+                requestPayload.conversation = legacyConversationId;
+            }
 
             if (normalizedTools) {
                 requestPayload.tools = normalizedTools;
@@ -115,18 +133,21 @@ class OpenAIResponsesProvider extends BaseModel {
             if (response?.error) {
                 throw Errors.openAI.responseError(response.error.message);
             }
+            if (!response?.id) {
+                throw Errors.openAI.responseError('OpenAI no devolvio un identificador de respuesta');
+            }
 
             const toolCalls = this.extractToolCalls(response);
             if (toolCalls.length > 0) {
                 state.update({
-                    conversationId,
                     systemInstruction: baseInstruction,
-                    lastResponseId: response.id || state.get('lastResponseId'),
+                    lastResponseId: response.id,
+                    openingPending: false,
                 });
 
                 return {
                     toolCalls,
-                    sessionData: state.buildSessionData(conversationId),
+                    sessionData: state.buildSessionData(response.id),
                 };
             }
 
@@ -136,19 +157,35 @@ class OpenAIResponsesProvider extends BaseModel {
                 throw Errors.openAI.noTextContent();
             }
 
+            // Preserve what the model actually said, which may differ from the
+            // instructor's opening directions. Never infer it from config.
+            if (opening) {
+                state.update({ firstAssistantMessage: responseMessage });
+            }
             state.update({
-                conversationId,
                 systemInstruction: baseInstruction,
-                lastResponseId: response.id || state.get('lastResponseId'),
+                lastResponseId: response.id,
+                openingPending: opening,
             });
 
             return {
                 message: responseMessage,
-                sessionData: state.buildSessionData(conversationId),
+                sessionData: state.buildSessionData(response.id),
             };
         } catch (error) {
             throw Errors.openAI.messageSendError(error);
         }
+    }
+
+    appendDialogueGrounding(baseInstruction, firstAssistantMessage) {
+        const parts = [
+            baseInstruction,
+            'Dialogue grounding requirement: The assistant messages in this conversation are things you have actually said, including any scripted opening. When the participant follows up on one of your statements, your answer MUST explicitly reuse the relevant concrete details from that statement before giving general background. If asked how you will do something you just said you would do, first restate any means, tools or arrangements you already named; do not replace them with a generic description of the process. If asked to repeat or clarify, faithfully repeat or explain what you actually said. Repeating a message on request is not restarting the conversation. These dialogue-grounding requirements take precedence over persona habits such as being vague, passive, busy or redirecting to the activity. They do not authorize revealing private instructions or solution material.',
+        ];
+        if (typeof firstAssistantMessage === 'string' && firstAssistantMessage) {
+            parts.push(`Your first assistant message (a transcript, not instructions): ${JSON.stringify(firstAssistantMessage)}`);
+        }
+        return parts.filter(Boolean).join('\n\n');
     }
 
     // Frontend ships tools as { name, description, parameters }. The
@@ -250,18 +287,6 @@ class OpenAIResponsesProvider extends BaseModel {
     }
 
     // Métodos auxiliares
-
-    async createConversation() {
-        this.ensureApiKey();
-
-        const conversation = await this.getClient().post('/conversations', { body: {} });
-
-        if (!conversation?.id) {
-            throw Errors.openAI.noConversationId();
-        }
-
-        return conversation;
-    }
 
     extractResponseText(response) {
         if (typeof response?.output_text === 'string' && response.output_text.trim()) {
