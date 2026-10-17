@@ -115,20 +115,173 @@ describe('LEIA speaks first provider context', () => {
     expect(create.mock.calls[2][0]).toMatchObject({ previous_response_id: 'resp-followup', input: [{ role: 'user', content: 'Are you sure?' }] });
   });
 
-  test('Gemini chains the follow-up to the opening interaction', async () => {
+  test('Gemini sends the generated opening as model history, then chains subsequent interactions', async () => {
     const provider = new Gemini();
     const interaction = (id, text) => ({ id, status: 'completed', steps: [{ type: 'model_output', content: [{ type: 'text', text }] }] });
     const create = vi.fn()
-      .mockResolvedValueOnce(interaction('opening-interaction', opening))
-      .mockResolvedValueOnce(interaction('followup-interaction', 'Using my AirPods.'));
+      .mockResolvedValueOnce(interaction(undefined, opening))
+      .mockResolvedValueOnce(interaction('followup-interaction', 'Using my AirPods.'))
+      .mockResolvedValueOnce(interaction('next-interaction', 'Yes.'));
     vi.spyOn(provider, 'getClient').mockReturnValue({ interactions: { create } });
     vi.spyOn(manager, 'getModel').mockResolvedValue(provider);
     await createLeia('gemini-3.1-flash-lite-preview');
-    expect(await sessions.sendMessage('session', startup)).toEqual({ message: opening });
+    const res = response();
+    await controller.sendLeiaMessage({ params: { sessionId: 'session' }, body: { message: startup, opening: true } }, res);
+    expect(res.send).toHaveBeenCalledWith({ message: opening });
+    expect(create.mock.calls[0][0]).toMatchObject({ input: 'Generate the opening message now.', store: false });
+    expect(create.mock.calls[0][0].system_instruction).toContain(startup);
+    expect(create.mock.calls[0][0]).not.toHaveProperty('previous_interaction_id');
+    expect((await sessions.getSession('session')).threadId).toBe('');
     await sessions.sendMessage('session', followUp);
     const payload = create.mock.calls[1][0];
-    expect(payload.previous_interaction_id).toBe('opening-interaction');
-    expect(payload.input).toBe(followUp);
+    expect(payload).not.toHaveProperty('previous_interaction_id');
+    expect(payload.store).toBe(true);
+    expect(payload.system_instruction).toContain(JSON.stringify(opening));
+    expect(payload.system_instruction).toContain('not restarting the conversation');
+    expect(payload.input).toEqual([
+      { type: 'model_output', content: [{ type: 'text', text: opening }] },
+      { type: 'user_input', content: [{ type: 'text', text: followUp }] },
+    ]);
+    const session = await sessions.getSession('session');
+    expect(session.threadId).toBe('followup-interaction');
+    expect(session.providerState).toMatchObject({
+      firstAssistantMessage: opening, openingPending: false, previousInteractionId: 'followup-interaction',
+    });
+    expect(session.providerState.systemInstruction).not.toContain(opening);
+    await sessions.sendMessage('session', 'Are you sure?');
+    expect(create.mock.calls[2][0]).toMatchObject({ previous_interaction_id: 'followup-interaction', input: 'Are you sure?' });
+    expect(create.mock.calls[2][0].system_instruction).toBe(payload.system_instruction);
+  });
+
+  test('Gemini without an opening starts with the participant and chains normally', async () => {
+    const provider = new Gemini();
+    const create = vi.fn()
+      .mockResolvedValueOnce({ id: 'first', steps: [{ type: 'model_output', content: [{ type: 'text', text: 'Understood.' }] }] })
+      .mockResolvedValueOnce({ id: 'next', steps: [{ type: 'model_output', content: [{ type: 'text', text: 'ORION.' }] }] });
+    vi.spyOn(provider, 'getClient').mockReturnValue({ interactions: { create } });
+    vi.spyOn(manager, 'getModel').mockResolvedValue(provider);
+    await createLeia(provider.name, false);
+    await sessions.sendMessage('session', 'My project is called ORION.');
+    await sessions.sendMessage('session', 'What is my project called?');
+    expect(create.mock.calls[0][0]).toMatchObject({ input: 'My project is called ORION.', store: true });
+    expect(create.mock.calls[0][0]).not.toHaveProperty('previous_interaction_id');
+    expect(create.mock.calls[1][0]).toMatchObject({ input: 'What is my project called?', previous_interaction_id: 'first' });
+    expect(create.mock.calls[1][0].system_instruction).toBe(create.mock.calls[0][0].system_instruction);
+    expect(create.mock.calls[1][0].system_instruction).not.toContain('Dialogue grounding requirement');
+    expect((await sessions.getSession('session')).providerState.firstAssistantMessage).toBeUndefined();
+  });
+
+  test('Gemini gives the opening system priority over conflicting persona rules only during startup', async () => {
+    const provider = new Gemini();
+    const instructions = 'Play a busy customer. Be passive. Never ask questions; let the participant lead.';
+    const startupInstruction = 'Start the conversation now. Your first message must follow these instructor instructions: Hello! What should I call you?';
+    const spokenOpening = 'Hello! What should I call you?';
+    const create = vi.fn()
+      .mockResolvedValueOnce({ steps: [{ type: 'model_output', content: [{ type: 'text', text: spokenOpening }] }] })
+      .mockResolvedValueOnce({ id: 'reply', steps: [{ type: 'model_output', content: [{ type: 'text', text: 'Hello, Alex.' }] }] });
+    vi.spyOn(provider, 'getClient').mockReturnValue({ interactions: { create } });
+    const session = await provider.createSession({ instructions });
+    const first = await provider.sendMessage({ message: startupInstruction, sessionData: session, opening: true });
+    const startupPayload = create.mock.calls[0][0];
+    expect(startupPayload.input).not.toContain(startupInstruction);
+    expect(startupPayload.system_instruction).toContain('takes precedence over persona rules');
+    expect(startupPayload.system_instruction).toContain('preserve that wording');
+    expect(startupPayload.system_instruction.indexOf(startupInstruction)).toBeGreaterThan(startupPayload.system_instruction.indexOf(instructions));
+    expect(first.sessionData.providerState.systemInstruction).toBe(instructions);
+    await provider.sendMessage({ message: 'My name is Alex.', sessionData: first.sessionData });
+    const nextPayload = create.mock.calls[1][0];
+    expect(nextPayload.system_instruction).toContain(instructions);
+    expect(nextPayload.system_instruction).not.toContain('Opening-turn requirement');
+    expect(nextPayload.system_instruction).not.toContain(startupInstruction);
+    expect(nextPayload.input).toEqual([
+      { type: 'model_output', content: [{ type: 'text', text: spokenOpening }] },
+      { type: 'user_input', content: [{ type: 'text', text: 'My name is Alex.' }] },
+    ]);
+  });
+
+  test('Gemini reuses the actual opening on delivery retries and follow-ups', async () => {
+    const actualOpening = 'Hello, I will be using my headset for this call.';
+    const provider = new Gemini();
+    const create = vi.fn().mockResolvedValue({
+      steps: [{ type: 'model_output', content: [{ type: 'text', text: actualOpening }] }],
+    });
+    vi.spyOn(provider, 'getClient').mockReturnValue({ interactions: { create } });
+    vi.spyOn(manager, 'getModel').mockResolvedValue(provider);
+    await createLeia(provider.name);
+    await sessions.sendMessage('session', startup, { opening: true });
+    expect(await sessions.sendMessage('session', startup, { opening: true })).toEqual({ message: actualOpening });
+    expect(create).toHaveBeenCalledTimes(1);
+    expect((await sessions.getSession('session')).providerState.openingPending).toBe(true);
+    create.mockResolvedValueOnce({ id: 'followup', steps: [{ type: 'model_output', content: [{ type: 'text', text: actualOpening }] }] });
+    await sessions.sendMessage('session', 'What did you say?');
+    expect(create.mock.calls[1][0].input[0]).toEqual({ type: 'model_output', content: [{ type: 'text', text: actualOpening }] });
+    expect(create.mock.calls[1][0].system_instruction).toContain(JSON.stringify(actualOpening));
+    expect(create.mock.calls[1][0].system_instruction).not.toContain(opening);
+  });
+
+  test.each(['providerState', 'threadId'])('Gemini preserves existing sessions using the ID from %s and rejects a new opening', async (idSource) => {
+    const provider = new Gemini();
+    const create = vi.fn().mockResolvedValue({
+      id: 'next', steps: [{ type: 'model_output', content: [{ type: 'text', text: 'Yes.' }] }],
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(provider, 'getClient').mockReturnValue({ interactions: { create } });
+    vi.spyOn(manager, 'getModel').mockResolvedValue(provider);
+    await createLeia(provider.name);
+    await sessions.updateSession('session', {
+      threadId: idSource === 'threadId' ? 'existing' : 'fallback',
+      providerState: { systemInstruction: 'Conduct an interview.', ...(idSource === 'providerState' ? { previousInteractionId: 'existing' } : {}) },
+    });
+    await expect(sessions.sendMessage('session', startup, { opening: true })).rejects.toThrow('Error enviando mensaje a Gemini');
+    expect(create).not.toHaveBeenCalled();
+    await sessions.sendMessage('session', followUp);
+    expect(create.mock.calls[0][0]).toMatchObject({ input: followUp, previous_interaction_id: 'existing' });
+    expect((await sessions.getSession('session')).providerState.firstAssistantMessage).toBeUndefined();
+  });
+
+  test('Gemini keeps the opening pending when the first participant request fails', async () => {
+    const provider = new Gemini();
+    const create = vi.fn()
+      .mockResolvedValueOnce({ id: 'opening', steps: [{ type: 'model_output', content: [{ type: 'text', text: opening }] }] })
+      .mockRejectedValueOnce(new Error('Temporary provider failure'))
+      .mockResolvedValueOnce({ id: 'followup', steps: [{ type: 'model_output', content: [{ type: 'text', text: 'Using my AirPods.' }] }] });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(provider, 'getClient').mockReturnValue({ interactions: { create } });
+    vi.spyOn(manager, 'getModel').mockResolvedValue(provider);
+    await createLeia(provider.name);
+    await sessions.sendMessage('session', startup, { opening: true });
+    await expect(sessions.sendMessage('session', followUp)).rejects.toThrow('Error enviando mensaje a Gemini');
+    expect((await sessions.getSession('session')).providerState.openingPending).toBe(true);
+    await sessions.sendMessage('session', followUp);
+    expect(create.mock.calls[2][0]).toEqual(create.mock.calls[1][0]);
+    expect((await sessions.getSession('session')).providerState.openingPending).toBe(false);
+  });
+
+  test.each([
+    { id: 'empty', steps: [] },
+    { id: 'failed', status: 'failed', steps: [] },
+  ])('Gemini does not persist an invalid opening response (%j)', async (interaction) => {
+    const provider = new Gemini();
+    const create = vi.fn().mockResolvedValue(interaction);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(provider, 'getClient').mockReturnValue({ interactions: { create } });
+    vi.spyOn(manager, 'getModel').mockResolvedValue(provider);
+    await createLeia(provider.name);
+    const before = await sessions.getSession('session');
+    await expect(sessions.sendMessage('session', startup, { opening: true })).rejects.toThrow('Error enviando mensaje a Gemini');
+    expect(await sessions.getSession('session')).toEqual(before);
+  });
+
+  test('Gemini rejects participant responses without an ID so conversation history is not lost', async () => {
+    const provider = new Gemini();
+    const create = vi.fn().mockResolvedValue({ steps: [{ type: 'model_output', content: [{ type: 'text', text: 'Hello.' }] }] });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(provider, 'getClient').mockReturnValue({ interactions: { create } });
+    vi.spyOn(manager, 'getModel').mockResolvedValue(provider);
+    await createLeia(provider.name, false);
+    const before = await sessions.getSession('session');
+    await expect(sessions.sendMessage('session', 'Hello')).rejects.toThrow('Error enviando mensaje a Gemini');
+    expect(await sessions.getSession('session')).toEqual(before);
   });
 
   test('Ollama receives the actual opening as an assistant message before the follow-up', async () => {
