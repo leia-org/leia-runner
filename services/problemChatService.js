@@ -1,6 +1,7 @@
 const { OpenAI, toFile } = require('openai');
 const { redisClient } = require('../config/redis');
 const apiKeyService = require('./apiKeyService');
+const { CORE_PLACEHOLDERS } = require('../utils/behaviourTemplate');
 
 // Same tool wire-format as the LEIA message flow: the FE sends tools as
 // { name, description, parameters }; we return { toolCalls:[{callId,name,arguments}] }
@@ -64,22 +65,24 @@ const BASE_SYSTEM_PROMPT = [
   '- get_current_behaviour(): read the selected behaviour. apply_behaviour is available only when the current user may author Behaviour resources.',
   '- get_current_persona() / apply_persona(spec): read / write the persona.',
   '- list_problems() / use_problem(id): list accessible EXISTING problems and select one.',
-  '- list_behaviours() / use_behaviour(id): list accessible EXISTING behaviours and select one.',
+  '- list_behaviours() / use_behaviour(id): list accessible saved behaviours AND previous drafts from this conversation and select one, including a generated-* draft id actually returned by the latest list.',
   '- list_personas() / use_persona(id): list the instructor\'s EXISTING personas and reuse one by id when suitable.',
   'Every apply_* takes a `name` (short kebab-case) — ALWAYS set it so the instructor does not have to rename the resource afterwards.',
   'Mandatory reuse-first workflow:',
   '- When the user asks for an activity/LEIA (or attaches a PDF), infer the requested scenario, learning objective, process, expected solution, AI role and persona before choosing resources.',
   '- Before creating a Problem, call list_problems. Use use_problem when an existing Problem materially matches the scenario, learning objective and expected output. Call apply_problem only after inspecting the list and only when no suitable Problem exists. A merely related topic is not a match.',
   '- After the final Problem is selected or created, call list_behaviours. Use use_behaviour when an existing Behaviour has the needed role and its process list exactly matches the Problem process. Do not require exercise-specific wording when a generic reusable role already supplies the right interaction pattern.',
+  '- When the user changes only the Problem scenario (for example, from a library to a gym), first inspect the current Behaviour. A reusable role whose {{problem.*}} and {{persona.*}} references provide the changing context should be reused unchanged. Applying a Problem temporarily clears the Behaviour selection, but the previous draft remains in list_behaviours; explicitly reselect it with use_behaviour after inspecting that list. Do not create a replacement merely because the scenario changed. Still reject incompatible hardcoded case instructions or a different process.',
   '- Before creating a Persona, call list_personas. Use use_persona when an existing character can naturally play the requested role. Call apply_persona only when no suitable Persona exists.',
   '- A list_* call and its corresponding apply_* call MUST NOT be made in the same response. Call list_*, wait for its tool result, inspect that result, and only then decide between use_* and apply_*.',
-  '- Call use_problem/use_behaviour/use_persona only with an id present in the corresponding latest list_* result. Once apply_* succeeds, keep that newly created resource; never pass an invented or newly created id to use_*.',
+  '- Call use_problem/use_behaviour/use_persona only with an id present in the corresponding latest list_* result. Never invent ids. A previous Behaviour draft is a valid reuse candidate when its generated-* id is returned by list_behaviours; selecting it preserves that exact draft instead of creating a duplicate.',
   '- Never create a near-duplicate merely to change a name, phrasing, subject example or other non-material detail. Prefer an existing resource plus the Problem composition fields when appropriate.',
   '- If a different Problem is selected or created, do not silently retain an old Behaviour. Explicitly select a compatible Behaviour after searching the library.',
   '- If the user only asks a question and does not request an editor change, answer without applying resources.',
   '- If the user attaches a PDF and asks to convert it into a problem, read the PDF, reconstruct the scenario, and call apply_problem with a complete spec. If the solution should be a diagram, put valid mermaid in `solution` and set solutionFormat to "mermaid".',
-  '- If the user asks to change the current problem, call get_current_problem first, then apply_problem with the updated spec.',
+  '- If the user asks to change the current problem, call get_current_problem and get_current_behaviour first, inspect list_problems, then apply_problem with the updated spec if necessary. Preserve existing Problem template references while updating its domain content.',
   '- Keep description/personaBackground/details/solution internally consistent. Template tags like {{persona.firstName}} may be used where natural.',
+  `- New or edited Behaviour descriptions must remain reusable runtime templates. Include these references: ${CORE_PLACEHOLDERS.join(', ')}. Preserve any additional template references from the previous Behaviour when editing it. Use references for the scenario, case details, expected solution and persona instead of hardcoding them. A tool error with missingReferences means the editor was not changed: fix those references and retry, or reuse the compatible previous Behaviour.`,
   '- Fill every field you reasonably can.',
   '- extends/overrides/constrainedTo customize the persona/behaviour/problem the activity is paired with. Each is keyed by component (persona/behaviour/problem); each component is { spec: {...fields}, apiVersion? }. extends ADDS to a spec, overrides REPLACES fields, constrainedTo CONSTRAINS. Example: {"extends":{"persona":{"spec":{"personality":["amigable","despistado"]}}},"overrides":{"behaviour":{"spec":{"role":"alumno de instituto"}}},"constrainedTo":{"behaviour":{"spec":{"process":["requirements-elicitation"]},"apiVersion":"v1"}}}. Leave them as {} unless the user asks to customize the persona/behaviour.',
   '- Add widgets ONLY when the activity needs an interactive tool (e.g. a coding exercise needs the code editor). The apply_problem tool lists the available widgets and their tool functions; for each tool you may set enabled and a usage note describing when LEIA should use it.',
