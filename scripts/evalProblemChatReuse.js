@@ -5,6 +5,7 @@ const OpenAI = require('openai').default;
 dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 
 const problemChatService = require('../services/problemChatService');
+const { CORE_PLACEHOLDERS } = require('../utils/behaviourTemplate');
 
 const model = process.env.PROBLEM_CHAT_EVAL_MODEL || process.env.OPENAI_MODEL || 'gpt-5.4-mini';
 const cliArgs = process.argv.slice(2);
@@ -53,8 +54,8 @@ function buildTools(canAuthorBehaviour) {
       constrainedTo: { type: 'object' },
     }, ['name', 'description', 'details', 'solution', 'process']),
     functionTool('get_current_behaviour', 'Return the currently selected Behaviour.'),
-    functionTool('list_behaviours', 'List existing Behaviours. You MUST wait for and inspect this result before creating a Behaviour.'),
-    functionTool('use_behaviour', 'Select an existing Behaviour whose role fits and whose process exactly matches the Problem.', idParameter('Behaviour'), ['id']),
+    functionTool('list_behaviours', 'List saved Behaviours and previous conversation drafts, with their full instructions. Prefer compatible generic roles with dynamic problem/persona references. Inspect the result before creating a Behaviour.'),
+    functionTool('use_behaviour', 'Select a compatible saved or draft Behaviour by an id actually returned by list_behaviours. Preserve its identity and template references; its process must exactly match the Problem.', idParameter('Behaviour'), ['id']),
     functionTool('get_current_persona', 'Return the currently selected Persona.'),
     functionTool('list_personas', 'List existing Personas. You MUST wait for and inspect this result before creating a Persona.'),
     functionTool('use_persona', 'Select an existing suitable Persona instead of creating a duplicate.', idParameter('Persona'), ['id']),
@@ -73,7 +74,7 @@ function buildTools(canAuthorBehaviour) {
   if (canAuthorBehaviour) {
     tools.splice(8, 0, functionTool(
       'apply_behaviour',
-      'Create a new Behaviour only when list_behaviours contains no compatible reusable role.',
+      `Create a new Behaviour only when list_behaviours contains no compatible reusable role. Keep its instructions reusable and include these runtime references: ${CORE_PLACEHOLDERS.join(', ')}.`,
       {
         name: { type: 'string' },
         description: { type: 'string' },
@@ -163,6 +164,24 @@ const unrelatedLibrary = {
 
 const scenarios = [
   {
+    id: 'adapt-conversation-draft-to-gym',
+    canAuthorBehaviour: true,
+    library: { problems: [reusableLibrary.problems[1]], behaviours: [], personas: [reusableLibrary.personas[1]] },
+    initialSelection: {
+      problem: reusableLibrary.problems[1],
+      behaviour: {
+        id: 'generated-client-interviewee', name: 'generic-client-interviewee',
+        role: 'Client being interviewed by a requirements analyst',
+        description: `Play the client described by the current scenario. Answer questions progressively, reveal only the requirements asked about, and never give the complete solution unprompted. Use dynamic context: ${CORE_PLACEHOLDERS.join(', ')}.`,
+        process: ['requirements-elicitation'],
+      },
+      persona: reusableLibrary.personas[1],
+    },
+    request: 'cambiame el problema para que sea de gestión de un gimnasio con los usuarios los instructores y los planes de entrenamiento',
+    required: [['get_current_problem'], ['get_current_behaviour'], ['apply_problem'], ['list_behaviours'], ['use_behaviour', 'generated-client-interviewee']],
+    forbidden: ['apply_behaviour', 'apply_persona'],
+  },
+  {
     id: 'reuse-all',
     canAuthorBehaviour: true,
     library: reusableLibrary,
@@ -227,6 +246,10 @@ function responseText(response) {
 }
 
 function executeCalls(calls, state, library) {
+  const behaviours = () => [...new Map([
+    ...library.behaviours, ...state.rememberedBehaviours.values(),
+  ].map(item => [item.id, item])).values()];
+  if (state.behaviour) state.rememberedBehaviours.set(state.behaviour.id, clone(state.behaviour));
   const priority = {
     get_current_problem: 0,
     get_current_behaviour: 0,
@@ -257,7 +280,7 @@ function executeCalls(calls, state, library) {
       successful = true;
     } else if (call.name === 'list_behaviours') {
       state.inspected.add('behaviour');
-      output = library.behaviours;
+      output = behaviours();
       successful = true;
     } else if (call.name === 'list_personas') {
       state.inspected.add('persona');
@@ -291,7 +314,7 @@ function executeCalls(calls, state, library) {
         successful = true;
       }
     } else if (call.name === 'use_behaviour') {
-      const selected = library.behaviours.find((item) => item.id === args.id);
+      const selected = behaviours().find((item) => item.id === args.id);
       const sameProcess = selected && JSON.stringify([...(selected.process || [])].sort()) === JSON.stringify([...(activeProcess || [])].sort());
       if (selected && state.problem && sameProcess) {
         state.behaviour = clone(selected);
@@ -302,6 +325,7 @@ function executeCalls(calls, state, library) {
       if (!inspectedBefore.has('behaviour')) output = { error: 'Inspect list_behaviours in a previous response first.' };
       else {
         state.behaviour = { ...clone(args), id: 'created-behaviour' };
+        state.rememberedBehaviours.set(state.behaviour.id, clone(state.behaviour));
         output = { status: 'applied' };
         successful = true;
       }
@@ -361,9 +385,10 @@ async function runScenario(client, scenario, runNumber) {
   const instructions = problemChatService.buildSystemPrompt(rawTools);
   const state = {
     inspected: new Set(),
-    problem: null,
-    behaviour: null,
-    persona: null,
+    problem: scenario.initialSelection?.problem ? clone(scenario.initialSelection.problem) : null,
+    behaviour: scenario.initialSelection?.behaviour ? clone(scenario.initialSelection.behaviour) : null,
+    persona: scenario.initialSelection?.persona ? clone(scenario.initialSelection.persona) : null,
+    rememberedBehaviours: new Map(),
     title: null,
     events: [],
   };

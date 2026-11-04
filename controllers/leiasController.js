@@ -72,11 +72,14 @@ module.exports.createLeia = async function createLeia(req, res) {
 module.exports.sendLeiaMessage = async function sendLeiaMessage(req, res) {
   try {
     const sessionId = req.params.sessionId;
-    const { message, tools, toolResults } = req.body;
+    const { message, tools, toolResults, opening } = req.body;
 
     const hasToolResults = Array.isArray(toolResults) && toolResults.length > 0;
     if (!sessionId || (!message && !hasToolResults)) {
       return res.status(400).send({ error: 'SessionId and message (or toolResults) are required' });
+    }
+    if ((opening !== undefined && typeof opening !== 'boolean') || (opening === true && hasToolResults)) {
+      return res.status(400).send({ error: 'opening must be a boolean and cannot be combined with toolResults' });
     }
 
     // Check if session exists
@@ -86,7 +89,7 @@ module.exports.sendLeiaMessage = async function sendLeiaMessage(req, res) {
     }
 
     // Send message through the session service
-    const response = await sessionService.sendMessage(sessionId, message, { tools, toolResults });
+    const response = await sessionService.sendMessage(sessionId, message, { tools, toolResults, opening: opening === true });
 
     res.status(200).send(response);
   } catch (error) {
