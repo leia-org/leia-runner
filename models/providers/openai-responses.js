@@ -41,6 +41,7 @@ class OpenAIResponsesProvider extends BaseModel {
             parallelToolCalls,
             toolChoice,
             opening = false,
+            context,
         } = options;
         const state = new ProviderState(sessionData);
         const baseInstruction = state.getSystemInstruction();
@@ -65,6 +66,9 @@ class OpenAIResponsesProvider extends BaseModel {
             // or a batch of function_call_output items continuing a prior
             // tool-call round.
             let input;
+            // Hidden context only accompanies a participant message: it is
+            // ignored for the startup request and for tool continuations.
+            let contextApplied = false;
             if (Array.isArray(toolResults) && toolResults.length > 0) {
                 input = toolResults.map((r) => ({
                     type: 'function_call_output',
@@ -78,6 +82,12 @@ class OpenAIResponsesProvider extends BaseModel {
                         content: message,
                     },
                 ];
+                if (!opening && typeof context === 'string' && context.trim().length > 0) {
+                    // Sent as its own developer item right before the
+                    // participant message, so it is never attributed to them.
+                    input.unshift({ role: 'developer', content: context });
+                    contextApplied = true;
+                }
                 if (!opening && pendingOpening) {
                     // Start the participant dialogue with LEIA's actual speech.
                     // The isolated startup command must not become user history.
@@ -147,6 +157,8 @@ class OpenAIResponsesProvider extends BaseModel {
 
                 return {
                     toolCalls,
+                    // Tells the caller the context reached the model.
+                    ...(contextApplied ? { contextApplied: true } : {}),
                     sessionData: state.buildSessionData(response.id),
                 };
             }
@@ -170,6 +182,7 @@ class OpenAIResponsesProvider extends BaseModel {
 
             return {
                 message: responseMessage,
+                ...(contextApplied ? { contextApplied: true } : {}),
                 sessionData: state.buildSessionData(response.id),
             };
         } catch (error) {
