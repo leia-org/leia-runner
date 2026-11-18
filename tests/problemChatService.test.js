@@ -28,4 +28,30 @@ describe('problem chat authoring instructions', () => {
     expect(prompt).toContain('You cannot author or edit the base Behaviour resource');
     expect(prompt).toContain('You may still use extends, overrides or constrainedTo');
   });
+
+  it('uses proposal instructions only for Designers that support draft editing commands', () => {
+    const prompt = problemChatService.buildSystemPrompt([
+      { name: 'edit_problem' },
+      { name: 'apply_behaviour' },
+      { name: 'edit_behaviour' },
+    ]);
+
+    expect(prompt).toContain('must approve the displayed proposal');
+    expect(prompt).toContain('keep the other selections and title');
+    expect(prompt).toContain('edit_behaviour with appendInstructions');
+    expect(prompt).not.toContain('temporarily clears the Behaviour selection');
+    expect(prompt).not.toContain('You cannot author or edit');
+  });
+
+  it('forbids proposing authored Behaviours for basic users', () => {
+    const prompt = problemChatService.buildSystemPrompt([{ name: 'edit_problem' }, { name: 'use_behaviour' }]);
+    expect(prompt).toContain('You cannot author or edit the base Behaviour');
+    expect(prompt).toContain('Reuse a suitable saved Behaviour');
+  });
+
+  it('allows partial fields in draft edit commands', () => {
+    const [editTool, lookupTool] = problemChatService.normalizeTools([{ name: 'edit_behaviour' }, { name: 'list_behaviours' }]);
+    expect(editTool.strict).toBe(false);
+    expect(lookupTool.strict).toBeUndefined();
+  });
 });

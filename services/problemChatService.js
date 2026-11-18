@@ -7,6 +7,8 @@ const { CORE_PLACEHOLDERS } = require('../utils/behaviourTemplate');
 // { name, description, parameters }; we return { toolCalls:[{callId,name,arguments}] }
 // and accept { toolResults }. Kept self-contained here so the problem-chat does
 // not depend on the openai-responses provider internals.
+const DRAFT_EDIT_TOOLS = new Set(['edit_problem', 'edit_behaviour', 'edit_persona']);
+
 function normalizeTools(tools) {
   if (!Array.isArray(tools) || tools.length === 0) return null;
   const out = [];
@@ -15,6 +17,8 @@ function normalizeTools(tools) {
     out.push({
       type: 'function',
       name: t.name,
+      // Edit commands only carry fields the instructor asked to change.
+      ...(DRAFT_EDIT_TOOLS.has(t.name) ? { strict: false } : {}),
       description: typeof t.description === 'string' ? t.description : '',
       parameters:
         t.parameters && typeof t.parameters === 'object' ? t.parameters : { type: 'object', properties: {} },
@@ -56,10 +60,14 @@ const TTL_SECONDS = 6 * 60 * 60; // 6h — design-time assistant, ephemeral.
 
 // Design-time assistant. Tool availability is role-dependent: basic users can
 // select a Behaviour but cannot author the base resource.
-const BASE_SYSTEM_PROMPT = [
+const RESOURCE_CONTEXT = [
   'You help an instructor design a whole LEIA for an educational platform where students practice by interacting with an AI that simulates a real-world scenario. A LEIA is made of three resources: a PROBLEM (the scenario/task the student works on), a BEHAVIOUR (the role the AI plays opposite the student) and a PERSONA (the character the AI embodies).',
   'A LEIA problem spec has: description, personaBackground, details, solution, initialSolution, solutionFormat (one of: text, mermaid, yaml, markdown, html, json, xml), evaluationPrompt, process, the advanced composition fields extends/overrides/constrainedTo, and optionally widgets (interactive tools the activity uses).',
   'A behaviour spec has: description (how the AI acts, what it knows/withholds), role, process[], tooltip. A persona spec has: fullName, firstName, description, personality, and pronouns (subjectPronoum/objectPronoum/possesivePronoum/possesiveAdjective).',
+];
+
+const BASE_SYSTEM_PROMPT = [
+  ...RESOURCE_CONTEXT,
   'Tools, provided by the editor:',
   '- get_current_problem() / apply_problem(spec): read / write the problem.',
   '- get_current_behaviour(): read the selected behaviour. apply_behaviour is available only when the current user may author Behaviour resources.',
@@ -90,12 +98,30 @@ const BASE_SYSTEM_PROMPT = [
   'Always respond in the same language as the user or the attached document.',
 ];
 
+const REVIEW_SYSTEM_PROMPT = [
+  ...RESOURCE_CONTEXT,
+  'Designer reviews draft proposals. apply_* proposes creating or replacing a component, edit_* proposes editing selected fields, and use_* proposes reusing a library resource. A tool result of proposed refers to a working copy. The instructor must approve the displayed proposal in Designer before any change reaches the draft.',
+  'Scope each proposal to what the instructor asked for. If the request targets one component, keep the other selections and title. Use set_leia_name for a new untitled LEIA or an explicit rename. Ask a focused question if the requested change or target is unclear. Answer read-only questions without proposing changes.',
+  'Read get_current_problem, get_current_behaviour, or get_current_persona before editing the selected resource. Use edit_* with only the requested fields. To add a Behaviour guardrail or other instruction, use edit_behaviour with appendInstructions and empty changes. Preserve earlier instructions and every existing template reference.',
+  'For new components, check list_problems, list_behaviours, or list_personas and wait for the result before calling apply_*. Reuse a materially suitable resource with use_* and its exact id. Inspect candidate Behaviours with get_behaviour to check for hardcoded scenario details. Before changing the Problem, inspect the current Behaviour and keep it if its instructions still apply to the new scenario.',
+  'The selected Behaviour must match the final Problem process. If a requested Problem change requires replacing or editing the Behaviour, include that change in the same proposal. If there is no valid choice, ask the instructor how to proceed. Read tool results and correct rejected commands before finishing.',
+  `When creating a Behaviour, use dynamic references instead of hardcoded case data. Include ${CORE_PLACEHOLDERS.join(', ')}. Fill in a short kebab-case name when creating resources.`,
+  'Use Problem extensions, overrides, constraints, and widgets only when the requested activity needs them. Keep scenario, details, background and expected solution consistent. Read attached PDFs when the instructor asks to use them.',
+  'Summarise proposals without saying they have been applied. Always respond in the same language as the instructor or the attached document.',
+];
+
 function buildSystemPrompt(tools) {
   const toolNames = new Set(
     (Array.isArray(tools) ? tools : [])
       .map((tool) => tool?.name)
       .filter((name) => typeof name === 'string'),
   );
+  if (toolNames.has('edit_problem')) {
+    const rule = toolNames.has('edit_behaviour')
+      ? 'You can propose a new Behaviour with apply_behaviour or edit the selected one with edit_behaviour.'
+      : 'You cannot author or edit the base Behaviour. Reuse a suitable saved Behaviour. If none fits, explain that an advanced user or administrator can create one.';
+    return [...REVIEW_SYSTEM_PROMPT, rule].join('\n');
+  }
   const canAuthorBehaviour = toolNames.has('apply_behaviour');
   const behaviourRule = canAuthorBehaviour
     ? '- You may call apply_behaviour only after list_behaviours proves there is no suitable existing Behaviour. Its process must exactly match the final Problem process.'
