@@ -16,6 +16,7 @@
     "test:unit": "npm run test:regression",
     "eval:problem-chat-reuse": "node scripts/evalProblemChatReuse.js",
     "test:provider": "vitest run tests/providerIntegration.test.js",
+    "test:alma": "vitest run tests/almaIntegration.test.js tests/almaProvider.test.js",
     "setup": "npm install",
     "update-deps": "npm update",
     "test:regression": "vitest run --exclude tests/providerIntegration.test.js --exclude 'tests/integration/**'",

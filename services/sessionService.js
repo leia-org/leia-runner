@@ -1,10 +1,43 @@
 const { redisClient } = require('../config/redis');
+const { getSessionTtlSeconds } = require('../config/sessionTtl');
+const { CONVERSATION_KEY_PREFIX } = require('../models/conversationStore');
 const modelManager = require('../models/modelManager');
 
 class SessionService {
   constructor() {
     this.keyPrefix = 'session:';
     this.leiaMetaPrefix = 'leia:meta:';
+    this.conversationPrefix = CONVERSATION_KEY_PREFIX;
+  }
+
+  /**
+   * Restarts the expiration of the given keys (see config/sessionTtl.js).
+   * EXPIRE on a missing key is a no-op, so callers do not need to check.
+   * @param {string[]} keys - Redis keys
+   * @returns {Promise<void>}
+   */
+  async expireKeys(keys) {
+    const ttlSeconds = getSessionTtlSeconds();
+
+    if (ttlSeconds <= 0) {
+      return;
+    }
+
+    await Promise.all(keys.map((key) => redisClient.expire(key, ttlSeconds)));
+  }
+
+  /**
+   * Keeps every key of an active session alive: the session hash, its LEIA
+   * metadata and its conversation history.
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<void>}
+   */
+  async touchSession(sessionId) {
+    await this.expireKeys([
+      `${this.keyPrefix}${sessionId}`,
+      `${this.leiaMetaPrefix}${sessionId}`,
+      `${this.conversationPrefix}${sessionId}`,
+    ]);
   }
 
   serializeSessionData(sessionData) {
@@ -60,6 +93,7 @@ class SessionService {
       `${this.keyPrefix}${sessionId}`,
       this.serializeSessionData(mergedSessionData)
     );
+    await this.expireKeys([`${this.keyPrefix}${sessionId}`]);
 
     return mergedSessionData;
   }
@@ -94,6 +128,7 @@ class SessionService {
         `${this.keyPrefix}${sessionId}`,
         this.serializeSessionData(sessionData)
       );
+      await this.expireKeys([`${this.keyPrefix}${sessionId}`]);
       return sessionData;
     } catch (error) {
       console.error(`Error creating session ${sessionId}:`, error);
@@ -128,6 +163,9 @@ class SessionService {
         return null; // Return null instead of throwing an error
       }
 
+      // Activity keeps the session alive, so it never expires mid-conversation.
+      await this.touchSession(sessionId);
+
       // Honor the activity-level gate set at createLeia. Trusted Runner-only
       // sessions, such as the private MultiLEIA coordinator, can explicitly
       // enable their internal tools without exposing them to participants.
@@ -145,6 +183,9 @@ class SessionService {
         message,
         sessionData,
         opening: options.opening === true,
+        // Hidden per-turn context. Providers that support it answer with
+        // `contextApplied: true`; the others ignore it.
+        context: typeof options.context === 'string' ? options.context : undefined,
         allowTools,
         tools: allowTools ? options.tools : undefined,
         toolResults: allowTools ? options.toolResults : undefined,
@@ -185,6 +226,7 @@ class SessionService {
         `${this.leiaMetaPrefix}${sessionId}`,
         redisMetadata
       );
+      await this.expireKeys([`${this.leiaMetaPrefix}${sessionId}`]);
     } catch (error) {
       console.error(`Error storing LEIA metadata for session ${sessionId}:`, error);
       throw error;

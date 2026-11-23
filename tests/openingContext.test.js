@@ -23,6 +23,7 @@ beforeEach(() => {
   // Exercise the real session serialization between requests without Redis or
   // provider network calls. The next turn must reload the saved provider state.
   const hashes = new Map();
+  vi.spyOn(redisClient, 'expire').mockResolvedValue(true);
   vi.spyOn(redisClient, 'hGetAll').mockImplementation(async (key) => ({ ...hashes.get(key) }));
   vi.spyOn(redisClient, 'hSet').mockImplementation(async (key, value) => {
     hashes.set(key, { ...hashes.get(key), ...value });
