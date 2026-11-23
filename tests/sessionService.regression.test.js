@@ -15,6 +15,7 @@ beforeEach(() => {
     hashes.set(key, { ...hashes.get(key), ...value });
     return 1;
   });
+  vi.spyOn(redisClient, 'expire').mockResolvedValue(true);
   vi.spyOn(redisClient, 'hGetAll').mockImplementation(async (key) => ({ ...hashes.get(key) }));
   vi.spyOn(redisClient, 'del').mockImplementation(async (keys) => {
     let deleted = 0;
