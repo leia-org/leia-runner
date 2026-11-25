@@ -210,6 +210,13 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
         throw Errors.gemini.interactionStatusError(interaction.status);
       }
       return interaction;
+    }, {
+      input: {
+        type: responseFormat ? 'structured-generation' : 'message',
+        text: typeof input === 'string' ? input : undefined,
+        messages: Array.isArray(input) ? input : undefined,
+        includeText: !responseFormat,
+      },
     });
   }
 }

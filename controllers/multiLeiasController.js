@@ -39,7 +39,7 @@ module.exports.sendMultiLeiaMessage = async function sendMultiLeiaMessage(req, r
       req.params.sessionId,
       message,
       turnId
-    ));
+    ), { sessionId: req.params.sessionId, input: { type: 'multi-leia-turn', text: message } });
     return res.status(200).send(result);
   } catch (error) {
     return sendError(res, error, 'Internal error sending MultiLEIA message');
@@ -71,7 +71,7 @@ module.exports.streamMultiLeiaMessage = async function streamMultiLeiaMessage(re
         onRoute: async (route) => writeSse(res, 'route', route),
         onMessage: async (event) => writeSse(res, 'message', { message: event }),
       }
-    ));
+    ), { sessionId: req.params.sessionId, input: { type: 'multi-leia-stream', text: message } });
     writeSse(res, 'complete', {
       turnId: result.turnId,
       state: result.state,

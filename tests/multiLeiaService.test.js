@@ -364,7 +364,8 @@ describe('MultiLEIA partial traversal recovery', () => {
     expect(sessionService.sendMessage).toHaveBeenNthCalledWith(
       4,
       'session-1:actor:actor-b',
-      expect.stringContaining('React directly to what Actor A just said')
+      expect.stringContaining('React directly to what Actor A just said'),
+      { traceInternal: true }
     );
   });
 

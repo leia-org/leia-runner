@@ -142,7 +142,14 @@ class OpenAIResponsesProvider extends BaseModel {
             }
 
             const response = await withGeneration('runner.model.generate', 'openai', requestPayload.model,
-                () => this.getClient().responses.create(requestPayload));
+                () => this.getClient().responses.create(requestPayload), {
+                    input: {
+                        type: Array.isArray(toolResults) && toolResults.length ? 'tool-continuation' : 'message',
+                        text: message,
+                        tools: normalizedTools?.length,
+                        toolResults: Array.isArray(toolResults) ? toolResults.length : undefined,
+                    },
+                });
 
             if (response?.error) {
                 throw Errors.openAI.responseError(response.error.message);
@@ -280,7 +287,7 @@ class OpenAIResponsesProvider extends BaseModel {
                 text: {
                     format: zodTextFormat(EvaluationSchema, 'evaluation_result'),
                 },
-            }));
+            }), { input: { type: 'classic-evaluation', text: prompt, includeText: false } });
 
             if (!response.output_parsed) {
                 throw Errors.openAI.noEvaluation();
@@ -309,7 +316,7 @@ class OpenAIResponsesProvider extends BaseModel {
                 text: {
                     format: zodTextFormat(zodSchema, schemaName),
                 },
-            }));
+            }), { input: { type: 'rubric-evaluation', text: prompt, includeText: false } });
 
             if (!response.output_parsed) {
                 throw Errors.openAI.noEvaluation();
