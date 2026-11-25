@@ -1,3 +1,4 @@
+const { withGeneration } = require('./langfuseTracing');
 const { OpenAI } = require('openai');
 const { zodTextFormat } = require('openai/helpers/zod');
 
@@ -126,7 +127,7 @@ class StructuredGenerationService {
     reasoning,
     client,
   }) {
-    const response = await (client || this.getOpenAIClient()).responses.parse({
+    const response = await withGeneration('runner.structured.generate', 'openai', openaiModel, () => (client || this.getOpenAIClient()).responses.parse({
       model: openaiModel,
       input: [
         {
@@ -142,7 +143,7 @@ class StructuredGenerationService {
         format: zodTextFormat(zodSchema, schemaName),
       },
       ...(reasoning ? { reasoning } : {}),
-    });
+    }));
 
     if (!response.output_parsed) {
       throw new Error('OpenAI did not return a structured response');
@@ -159,12 +160,12 @@ class StructuredGenerationService {
     geminiResponseFormat,
     client,
   }) {
-    const interaction = await (client || this.getGeminiClient()).interactions.create({
+    const interaction = await withGeneration('runner.structured.generate', 'gemini', geminiModel, () => (client || this.getGeminiClient()).interactions.create({
       model: geminiModel,
       input: userPrompt,
       system_instruction: systemPrompt,
       ...(geminiResponseFormat ? { response_format: geminiResponseFormat } : {}),
-    });
+    }));
 
     if (interaction.status && interaction.status !== 'completed') {
       throw new Error(`Gemini interaction finished with status: ${interaction.status}`);

@@ -1,3 +1,4 @@
+const { withGeneration } = require('../../services/langfuseTracing');
 require('dotenv').config();
 const ApiKeyProvider = require('../constants');
 const { OpenAI } = require('openai');
@@ -140,7 +141,8 @@ class OpenAIResponsesProvider extends BaseModel {
                 }
             }
 
-            const response = await this.getClient().responses.create(requestPayload);
+            const response = await withGeneration('runner.model.generate', 'openai', requestPayload.model,
+                () => this.getClient().responses.create(requestPayload));
 
             if (response?.error) {
                 throw Errors.openAI.responseError(response.error.message);
@@ -262,7 +264,7 @@ class OpenAIResponsesProvider extends BaseModel {
      */
     async generateEvaluationResponse(prompt) {
         try {
-            const response = await this.getClient().responses.parse({
+            const response = await withGeneration('runner.model.generate', 'openai', this.evaluationModel, () => this.getClient().responses.parse({
                 model: this.evaluationModel,
                 input: [
                     {
@@ -278,7 +280,7 @@ class OpenAIResponsesProvider extends BaseModel {
                 text: {
                     format: zodTextFormat(EvaluationSchema, 'evaluation_result'),
                 },
-            });
+            }));
 
             if (!response.output_parsed) {
                 throw Errors.openAI.noEvaluation();
@@ -292,7 +294,7 @@ class OpenAIResponsesProvider extends BaseModel {
 
     async generateStructuredEvaluationResponse({ prompt, systemPrompt, zodSchema, schemaName }) {
         try {
-            const response = await this.getClient().responses.parse({
+            const response = await withGeneration('runner.model.generate', 'openai', this.evaluationModel, () => this.getClient().responses.parse({
                 model: this.evaluationModel,
                 input: [
                     {
@@ -307,7 +309,7 @@ class OpenAIResponsesProvider extends BaseModel {
                 text: {
                     format: zodTextFormat(zodSchema, schemaName),
                 },
-            });
+            }));
 
             if (!response.output_parsed) {
                 throw Errors.openAI.noEvaluation();

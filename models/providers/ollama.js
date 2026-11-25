@@ -1,3 +1,4 @@
+const { withGeneration } = require('../../services/langfuseTracing');
 require('dotenv').config();
 const BaseModel = require('./baseModel');
 const Errors = require('../../utils/errors');
@@ -153,24 +154,26 @@ class OllamaProvider extends BaseModel {
       requestBody.format = format;
     }
 
-    const response = await fetch(`${this.baseUrl}/api/chat`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(requestBody),
+    return withGeneration('runner.model.generate', 'ollama', model, async () => {
+      const response = await fetch(`${this.baseUrl}/api/chat`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Ollama request failed (${response.status}): ${errorBody}`);
+      }
+
+      const responseData = await response.json();
+
+      if (responseData?.error) {
+        throw new Error(responseData.error);
+      }
+
+      return responseData;
     });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`Ollama request failed (${response.status}): ${errorBody}`);
-    }
-
-    const responseData = await response.json();
-
-    if (responseData?.error) {
-      throw new Error(responseData.error);
-    }
-
-    return responseData;
   }
 
   extractAssistantMessage(response) {

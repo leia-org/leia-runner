@@ -5,6 +5,7 @@ const path = require('path');
 const { redisClient, initRedis } = require('./config/redis');
 const modelSyncService = require('./services/modelSyncService');
 const modelManager = require('./models/modelManager');
+const { shutdownTracing } = require('./services/langfuseTracing');
 const app = express();
 const port = process.env.PORT || 5000;
 
@@ -56,14 +57,19 @@ async function initializeServer() {
 
 initializeServer();
 
-// Gracefully shutdown the server
-process.on('SIGINT', async () => {
-    console.log('Received SIGINT. Gracefully shutting down...');
-    if (redisClient.isOpen) await redisClient.disconnect();
+let shuttingDown = false;
+async function shutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`Received ${signal}. Gracefully shutting down...`);
+    const deadline = setTimeout(() => process.exit(0), 5000).unref();
+    await Promise.allSettled([
+        redisClient.isOpen ? redisClient.disconnect() : undefined,
+        shutdownTracing(),
+    ]);
+    clearTimeout(deadline);
     process.exit(0);
-});
-process.on('SIGTERM', async () => {
-    console.log('Received SIGTERM. Gracefully shutting down...');
-    if (redisClient.isOpen) await redisClient.disconnect();
-    process.exit(0);
-});
+}
+
+process.on('SIGINT', () => void shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
