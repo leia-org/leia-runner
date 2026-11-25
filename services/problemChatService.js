@@ -1,3 +1,4 @@
+const { withGeneration } = require('./langfuseTracing');
 const { OpenAI, toFile } = require('openai');
 const { redisClient } = require('../config/redis');
 const apiKeyService = require('./apiKeyService');
@@ -219,7 +220,7 @@ class ProblemChatService {
     if (session.responseId) payload.previous_response_id = session.responseId;
     if (normalizedTools) payload.tools = normalizedTools;
 
-    const response = await client.responses.create(payload);
+    const response = await withGeneration('runner.designer.chat', 'openai', model, () => client.responses.create(payload));
     if (response?.error) {
       throw new Error(response.error.message || 'OpenAI response error');
     }
