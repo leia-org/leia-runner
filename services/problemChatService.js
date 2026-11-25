@@ -42,10 +42,18 @@ const TTL_SECONDS = 6 * 60 * 60; // 6h — design-time assistant, ephemeral.
 // Design-time assistant. Tool availability is role- and feature-dependent:
 // basic users can select a Behaviour but cannot author the base resource, and
 // rubrics are optional — included only when the instructor adds one.
-const CORE_PROMPT_INTRO_WITHOUT_RUBRIC = [
-  'You help an instructor design a whole LEIA for an educational platform where students practice by interacting with an AI that simulates a real-world scenario. A LEIA is made of three resources: a PROBLEM (the scenario/task the student works on), a BEHAVIOUR (the role the AI plays opposite the student) and a PERSONA (the character the AI embodies).',
+const RESOURCE_SPECS = [
   'A LEIA problem spec has: description, personaBackground, details, solution, initialSolution, solutionFormat (one of: text, mermaid, yaml, markdown, html, json, xml), evaluationPrompt, process, the advanced composition fields extends/overrides/constrainedTo, and optionally widgets (interactive tools the activity uses).',
   'A behaviour spec has: description (how the AI acts, what it knows/withholds), role, process[], tooltip. A persona spec has: fullName, firstName, description, personality, and pronouns (subjectPronoum/objectPronoum/possesivePronoum/possesiveAdjective).',
+];
+
+const RESOURCE_CONTEXT = [
+  'You help an instructor design a whole LEIA for an educational platform where students practice by interacting with an AI that simulates a real-world scenario. A LEIA is made of three resources: a PROBLEM (the scenario/task the student works on), a BEHAVIOUR (the role the AI plays opposite the student) and a PERSONA (the character the AI embodies).',
+  ...RESOURCE_SPECS,
+];
+
+const CORE_PROMPT_INTRO_WITHOUT_RUBRIC = [
+  ...RESOURCE_CONTEXT,
   'Tools, provided by the editor (call get_current_* before modifying an existing resource):',
   '- get_current_problem() / apply_problem(spec): read / write the problem.',
   '- get_current_behaviour(): read the selected behaviour. apply_behaviour is available only when the current user may author Behaviour resources.',
@@ -56,11 +64,14 @@ const CORE_PROMPT_INTRO_WITHOUT_RUBRIC = [
   'Every apply_* takes a `name` (short kebab-case) — ALWAYS set it so the instructor does not have to rename the resource afterwards.',
 ];
 
-const CORE_PROMPT_INTRO_WITH_RUBRIC = [
+const RESOURCE_CONTEXT_WITH_RUBRIC = [
   'You help an instructor design a whole LEIA for an educational platform where students practice by interacting with an AI that simulates a real-world scenario. A LEIA is made of four resources: a PROBLEM (the scenario/task the student works on), a BEHAVIOUR (the role the AI plays opposite the student), a PERSONA (the character the AI embodies), and a RUBRIC (the criteria used to evaluate the student\'s work).',
-  'A LEIA problem spec has: description, personaBackground, details, solution, initialSolution, solutionFormat (one of: text, mermaid, yaml, markdown, html, json, xml), evaluationPrompt, process, the advanced composition fields extends/overrides/constrainedTo, and optionally widgets (interactive tools the activity uses).',
-  'A behaviour spec has: description (how the AI acts, what it knows/withholds), role, process[], tooltip. A persona spec has: fullName, firstName, description, personality, and pronouns (subjectPronoum/objectPronoum/possesivePronoum/possesiveAdjective).',
+  ...RESOURCE_SPECS,
   'A rubric resource is structured JSON with apiVersion "v1", metadata.name, and spec ({ evaluationPrompt, sections }). Every section has title, numeric weight, ordered levels, and criteria. Every criterion has a name and one descriptor per level ({level, description}). Section weights must total 100. Levels must be ordered from worst to best. spec.evaluationPrompt is optional instructions explaining how to apply the rubric and may use placeholders like {{currentStage.outputs.conversation}}, {{currentStage.outputs.submitedSolution}}, {{previousStage.outputs.conversation}}, {{previousStage.outputs.submitedSolution}}, {{previousStage.leia.problem.*}}, {{problem.*}}, {{persona.*}} and {{behaviour.*}}. The rubric assesses whether the student can explain, justify and apply the concepts, decisions and trade-offs behind their solution, not only whether the final output looks correct.',
+];
+
+const CORE_PROMPT_INTRO_WITH_RUBRIC = [
+  ...RESOURCE_CONTEXT_WITH_RUBRIC,
   'Tools, provided by the editor (call get_current_* before modifying an existing resource):',
   '- get_current_problem() / apply_problem(spec): read / write the problem.',
   '- get_current_behaviour(): read the selected behaviour. apply_behaviour is available only when the current user may author Behaviour resources.',
@@ -96,14 +107,42 @@ const SHARED_WORKFLOW_PROMPT = [
   'Always respond in the same language as the user or the attached document.',
 ];
 
+const REVIEW_SYSTEM_PROMPT = [
+  'Designer reviews draft proposals. apply_* proposes creating or replacing a component, edit_* proposes editing selected fields, and use_* proposes reusing a library resource. A tool result of proposed refers to a working copy. The instructor must approve the displayed proposal in Designer before any change reaches the draft.',
+  'Scope each proposal to what the instructor asked for. If the request targets one component, keep the other selections and title. Use set_leia_name for a new untitled LEIA or an explicit rename. Ask a focused question if the requested change or target is unclear. Answer read-only questions without proposing changes.',
+  'Read get_current_problem, get_current_behaviour, or get_current_persona before editing the selected resource. Use edit_* with only the requested fields. To add a Behaviour guardrail or other instruction, use edit_behaviour with appendInstructions and empty changes. Preserve earlier instructions and every existing template reference.',
+  'For new components, check list_problems, list_behaviours, or list_personas and wait for the result before calling apply_*. Reuse a materially suitable resource with use_* and its exact id. Inspect candidate Behaviours with get_behaviour to check for hardcoded scenario details. Before changing the Problem, inspect the current Behaviour and keep it if its instructions still apply to the new scenario.',
+  'The selected Behaviour must match the final Problem process. If a requested Problem change requires replacing or editing the Behaviour, include that change in the same proposal. If there is no valid choice, ask the instructor how to proceed. Read tool results and correct rejected commands before finishing.',
+  `When creating a Behaviour, use dynamic references instead of hardcoded case data. Include ${CORE_PLACEHOLDERS.join(', ')}. Fill in a short kebab-case name when creating resources.`,
+  'Use Problem extensions, overrides, constraints, and widgets only when the requested activity needs them. Keep scenario, details, background and expected solution consistent. Read attached PDFs when the instructor asks to use them.',
+  'Summarise proposals without saying they have been applied. Always respond in the same language as the instructor or the attached document.',
+];
+
 function buildSystemPrompt(tools) {
   const toolNames = new Set(
     (Array.isArray(tools) ? tools : [])
       .map((tool) => tool?.name)
       .filter((name) => typeof name === 'string'),
   );
-  const canAuthorBehaviour = toolNames.has('apply_behaviour');
   const canAuthorRubric = toolNames.has('apply_rubric');
+  if (toolNames.has('edit_problem')) {
+    const rule = toolNames.has('edit_behaviour')
+      ? 'You can propose a new Behaviour with apply_behaviour or edit the selected one with edit_behaviour.'
+      : 'You cannot author or edit the base Behaviour. Reuse a suitable saved Behaviour. If none fits, explain that an advanced user or administrator can create one.';
+    const rubricRules = canAuthorRubric
+      ? [
+          'Call get_current_rubric before proposing a complete structured rubric with apply_rubric. When building a complete activity or materially changing its Problem, align the rubric with the task and learning objectives. A rubric proposal also requires instructor approval.',
+          'Use {{rubric.criteria}}, {{rubric.markdown}}, or {{rubric.evaluationPrompt}} in a Behaviour when it should probe rubric criteria.',
+        ]
+      : [];
+    return [
+      ...(canAuthorRubric ? RESOURCE_CONTEXT_WITH_RUBRIC : RESOURCE_CONTEXT),
+      ...REVIEW_SYSTEM_PROMPT,
+      rule,
+      ...rubricRules,
+    ].join('\n');
+  }
+  const canAuthorBehaviour = toolNames.has('apply_behaviour');
   const behaviourRule = canAuthorBehaviour
     ? '- You may call apply_behaviour only after list_behaviours proves there is no suitable existing Behaviour. Its process must exactly match the final Problem process.'
     : '- You cannot author or edit the base Behaviour resource. Never request apply_behaviour. Select an existing Behaviour with use_behaviour only if its role is suitable and its process exactly matches the Problem. If the list contains no compatible Behaviour, do not select an approximate one and do not keep trying other tools: leave Behaviour unselected and immediately explain that an advanced user or administrator must create it. You may still use extends, overrides or constrainedTo inside the Problem to customize a compatible selected Behaviour for this activity.';
