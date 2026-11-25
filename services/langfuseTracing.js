@@ -9,28 +9,39 @@ const { usageDetails } = require('../utils/traceUsage');
 const SERVICE_NAME = 'leia-runner';
 const TRACE_SESSION = createContextKey('leia-runner.langfuse.session');
 const PRIVATE_INPUT = createContextKey('leia-runner.langfuse.private-input');
+const SUPPRESS_TRACING = createContextKey('leia-runner.langfuse.suppressed');
 let telemetry;
+
+function getLangfuseConfig() {
+  const { LANGFUSE_BASE_URL: baseUrl, LANGFUSE_PUBLIC_KEY: publicKey, LANGFUSE_SECRET_KEY: sessionKey } = process.env;
+  if (!baseUrl || !publicKey || !sessionKey) return null;
+  const url = new URL(baseUrl);
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+    throw new Error('Invalid Langfuse base URL');
+  }
+  return {
+    apiUrl: `${url.href.replace(/\/+$/, '')}/api/public`,
+    environment: process.env.LANGFUSE_TRACING_ENVIRONMENT || process.env.NODE_ENV || 'development',
+    authorization: `Basic ${Buffer.from(`${publicKey}:${sessionKey}`).toString('base64')}`,
+    sessionKey,
+  };
+}
+
+function langfuseSessionId(sessionId, { environment, sessionKey }) {
+  return createHmac('sha256', sessionKey).update(environment).update('\0').update(sessionId).digest('hex').slice(0, 32);
+}
 
 function getTelemetry() {
   if (telemetry !== undefined) return telemetry;
   telemetry = null;
 
-  const { LANGFUSE_BASE_URL: baseUrl, LANGFUSE_PUBLIC_KEY: publicKey, LANGFUSE_SECRET_KEY: secretKey } = process.env;
-  if (!baseUrl || !publicKey || !secretKey) return null;
-
   try {
-    const url = new URL(baseUrl);
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
-      throw new Error('Invalid Langfuse base URL');
-    }
-    url.pathname = `${url.pathname.replace(/\/+$/, '')}/api/public/otel/v1/traces`;
-
-    const environment = process.env.LANGFUSE_TRACING_ENVIRONMENT || process.env.NODE_ENV || 'development';
+    const config = getLangfuseConfig();
+    if (!config) return null;
+    const { apiUrl, authorization, environment, sessionKey } = config;
     const exporter = new OTLPTraceExporter({
-      url: url.href,
-      headers: {
-        Authorization: `Basic ${Buffer.from(`${publicKey}:${secretKey}`).toString('base64')}`,
-      },
+      url: `${apiUrl}/otel/v1/traces`,
+      headers: { Authorization: authorization },
       timeoutMillis: 3000,
     });
     const provider = new NodeTracerProvider({
@@ -49,7 +60,7 @@ function getTelemetry() {
       provider,
       tracer: provider.getTracer(SERVICE_NAME),
       environment,
-      sessionKey: secretKey,
+      sessionKey,
       captureText: process.env.LANGFUSE_TRACE_CONTENT === 'redacted',
     };
   } catch {
@@ -63,17 +74,20 @@ function modelName(value) {
   return typeof value === 'string' && /^[\w./:-]{1,128}$/.test(value) ? value : undefined;
 }
 
-async function withTrace(name, operation, { generation, input, sessionId, hideChildInput = false } = {}) {
+async function withTrace(name, operation, { generation, input, sessionId, hideChildInput = false, suppressTracing = false } = {}) {
   const instance = getTelemetry();
   if (!instance) return operation();
 
   let activeContext = context.active();
+  if (activeContext.getValue(SUPPRESS_TRACING)) return operation();
+  if (suppressTracing) {
+    return context.with(activeContext.setValue(SUPPRESS_TRACING, true), operation);
+  }
   const captureInputText = instance.captureText && !activeContext.getValue(PRIVATE_INPUT);
   if (hideChildInput) activeContext = activeContext.setValue(PRIVATE_INPUT, true);
   let traceSession = activeContext.getValue(TRACE_SESSION);
   if (!traceSession && typeof sessionId === 'string' && sessionId) {
-    traceSession = createHmac('sha256', instance.sessionKey)
-      .update(instance.environment).update('\0').update(sessionId).digest('hex').slice(0, 32);
+    traceSession = langfuseSessionId(sessionId, instance);
     activeContext = activeContext.setValue(TRACE_SESSION, traceSession);
   }
   const attributes = {
@@ -125,4 +139,4 @@ async function shutdownTracing() {
   await telemetry?.provider.shutdown();
 }
 
-module.exports = { withTrace, withGeneration, shutdownTracing };
+module.exports = { withTrace, withGeneration, shutdownTracing, getLangfuseConfig, langfuseSessionId };

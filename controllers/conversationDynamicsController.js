@@ -1,11 +1,12 @@
 const z = require('zod');
 const generation = require('../services/structuredGenerationService');
+const { withTrace } = require('../services/langfuseTracing');
 const Decision = z.object({ satisfied: z.boolean() });
 
 exports.evaluate = async (req, res) => {
   try {
     
-    const { condition, transcript, behaviour, runnerConfiguration } = req.body;
+    const { condition, transcript, behaviour, runnerConfiguration, sessionId } = req.body;
     
     if (typeof condition !== 'string' || !condition.trim() || !Array.isArray(transcript)) {
       return res.status(400).json({ error: 'Condition and transcript are required' });
@@ -14,7 +15,7 @@ exports.evaluate = async (req, res) => {
     if (!runnerConfiguration?.apiKeyId || !runnerConfiguration?.apiKeyRequesterId || !runnerConfiguration?.modelName) {
       return res.status(400).json({ error: 'BYOK runnerConfiguration is required' });
     }
-    const result = await generation.generateObject({
+    const run = () => generation.generateObject({
       runnerConfiguration,
       systemPrompt: [
         'You are LEIA deciding whether to end your conversation with a student.',
@@ -31,6 +32,11 @@ exports.evaluate = async (req, res) => {
       geminiModel: process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite-preview',
       geminiResponseFormat: { type: 'object', properties: { satisfied: { type: 'boolean' } }, required: ['satisfied'], additionalProperties: false },
     });
+    const result = sessionId
+      ? await withTrace('runner.conversation-dynamics', run, {
+          sessionId, hideChildInput: true, input: { type: 'stopping-condition' },
+        })
+      : await run();
     
     res.json(result);
   } 
