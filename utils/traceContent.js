@@ -34,7 +34,7 @@ function describeInput(input, captureText) {
   const lastUser = messages.findLast((message) => message?.role === 'user' || message?.type === 'user_input');
   const text = input?.text ?? contentText(lastUser?.content);
   const counts = Object.fromEntries(
-    ['attachments', 'tools', 'toolResults'].filter((key) => Number.isSafeInteger(input?.[key]))
+    ['attachments', 'tools', 'toolResults', 'cancelledCalls'].filter((key) => Number.isSafeInteger(input?.[key]))
       .map((key) => [key, input[key]]),
   );
 
