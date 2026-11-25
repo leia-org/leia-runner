@@ -1,3 +1,4 @@
+const { withTrace } = require('../services/langfuseTracing');
 const modelManager = require('../models/modelManager');
 const sessionService = require('../services/sessionService');
 
@@ -70,19 +71,19 @@ module.exports.evaluateSolution = async function evaluateSolution(req, res) {
           },
         },
       };
-      const evaluationResult = await model.evaluateWithRubric({
+      const evaluationResult = await withTrace('runner.evaluation.rubric', () => model.evaluateWithRubric({
         rubric,
         context: evaluationContext,
         language: language || leiaMeta?.language || 'en',
-      });
+      }));
       return res.status(200).send(evaluationResult);
     }
 
     // Evaluar la solución de forma clásica
-    const evaluationResult = await model.evaluateSolution({
+    const evaluationResult = await withTrace('runner.evaluation.classic', () => model.evaluateSolution({
       leiaMeta,
       result
-    });
+    }));
 
     res.status(200).send({
       evaluationMode: 'classic',

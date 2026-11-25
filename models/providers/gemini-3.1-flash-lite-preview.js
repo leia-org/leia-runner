@@ -1,3 +1,4 @@
+const { withGeneration } = require('../../services/langfuseTracing');
 require('dotenv').config();
 const BaseModel = require('./baseModel');
 const Errors = require('../../utils/errors');
@@ -203,13 +204,13 @@ class Gemini31FlashLitePreviewProvider extends BaseModel {
       requestBody.store = store;
     }
 
-    const interaction = await this.getClient().interactions.create(requestBody);
-
-    if (interaction.status && interaction.status !== 'completed') {
-      throw Errors.gemini.interactionStatusError(interaction.status);
-    }
-
-    return interaction;
+    return withGeneration('runner.model.generate', 'gemini', model, async () => {
+      const interaction = await this.getClient().interactions.create(requestBody);
+      if (interaction.status && interaction.status !== 'completed') {
+        throw Errors.gemini.interactionStatusError(interaction.status);
+      }
+      return interaction;
+    });
   }
 }
 

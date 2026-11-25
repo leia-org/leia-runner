@@ -1,3 +1,4 @@
+const { withGeneration } = require('../../services/langfuseTracing');
 require('dotenv').config();
 const BaseModel = require('./baseModel');
 const Errors = require('../../utils/errors');
@@ -207,29 +208,31 @@ class AlmaProvider extends BaseModel {
     const apiKey = this.ensureApiKey();
     const model = await this.resolveModel(apiKey);
 
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: 'POST',
-      redirect: 'error',
-      signal: AbortSignal.timeout(COMPLETION_TIMEOUT_MS),
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: apiKey,
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        max_tokens: maxTokens,
-        temperature: this.temperature,
-        top_p: 1,
-        stop: STOP_TOKENS,
-      }),
+    const responseData = await withGeneration('runner.model.generate', 'alma', model, async () => {
+      const response = await fetch(`${this.baseUrl}/chat/completions`, {
+        method: 'POST',
+        redirect: 'error',
+        signal: AbortSignal.timeout(COMPLETION_TIMEOUT_MS),
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: apiKey,
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          max_tokens: maxTokens,
+          temperature: this.temperature,
+          top_p: 1,
+          stop: STOP_TOKENS,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`ALMA request failed (${response.status})`);
+      }
+
+      return response.json();
     });
-
-    if (!response.ok) {
-      throw new Error(`ALMA request failed (${response.status})`);
-    }
-
-    const responseData = await response.json();
     const content = responseData?.choices?.[0]?.message?.content;
 
     if (typeof content !== 'string' || !content.trim()) {
