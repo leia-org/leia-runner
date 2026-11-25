@@ -1,3 +1,4 @@
+const { withTrace } = require('./langfuseTracing');
 const { redisClient } = require('../config/redis');
 const { getSessionTtlSeconds } = require('../config/sessionTtl');
 const { CONVERSATION_KEY_PREFIX } = require('../models/conversationStore');
@@ -178,21 +179,36 @@ class SessionService {
       const model = await modelManager.getModel(sessionData.provider, sessionData.apiKeyId, sessionData.apiKeyRequesterId, sessionModelToken);
 
       // Send the message through the model
-      const response = await model.sendMessage({
-        sessionId,
-        message,
-        sessionData,
-        opening: options.opening === true,
-        // Hidden per-turn context. Providers that support it answer with
-        // `contextApplied: true`; the others ignore it.
-        context: typeof options.context === 'string' ? options.context : undefined,
-        allowTools,
-        tools: allowTools ? options.tools : undefined,
-        toolResults: allowTools ? options.toolResults : undefined,
-        internalTools: options.internalTools === true,
-        parallelToolCalls: options.parallelToolCalls,
-        toolChoice: options.toolChoice,
-      });
+      const internal = options.internalTools === true || options.traceInternal === true;
+      const response = await withTrace(
+        options.internalTools ? 'runner.multileia.router' : internal ? 'runner.multileia.actor' : 'runner.chat',
+        () => model.sendMessage({
+          sessionId,
+          message,
+          sessionData,
+          opening: options.opening === true,
+          // Hidden per-turn context. Providers that support it answer with
+          // `contextApplied: true`; the others ignore it.
+          context: typeof options.context === 'string' ? options.context : undefined,
+          allowTools,
+          tools: allowTools ? options.tools : undefined,
+          toolResults: allowTools ? options.toolResults : undefined,
+          internalTools: options.internalTools === true,
+          parallelToolCalls: options.parallelToolCalls,
+          toolChoice: options.toolChoice,
+        }),
+        {
+          sessionId,
+          hideChildInput: internal,
+          input: {
+            type: options.opening ? 'opening' : options.toolResults?.length ? 'tool-continuation' : 'message',
+            text: message,
+            includeText: !internal,
+            tools: Array.isArray(options.tools) ? options.tools.length : undefined,
+            toolResults: Array.isArray(options.toolResults) ? options.toolResults.length : undefined,
+          },
+        },
+      );
 
       if (response?.sessionData) {
         await this.updateSession(sessionId, response.sessionData);

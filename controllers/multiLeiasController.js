@@ -1,3 +1,4 @@
+const { withTrace } = require('../services/langfuseTracing');
 const multiLeiaService = require('../services/multiLeiaService');
 
 function sendError(res, error, fallbackMessage) {
@@ -34,11 +35,11 @@ module.exports.createMultiLeia = async function createMultiLeia(req, res) {
 module.exports.sendMultiLeiaMessage = async function sendMultiLeiaMessage(req, res) {
   try {
     const { message, turnId } = req.body || {};
-    const result = await multiLeiaService.sendMessage(
+    const result = await withTrace('runner.multileia.turn', () => multiLeiaService.sendMessage(
       req.params.sessionId,
       message,
       turnId
-    );
+    ), { sessionId: req.params.sessionId, input: { type: 'multi-leia-turn', text: message } });
     return res.status(200).send(result);
   } catch (error) {
     return sendError(res, error, 'Internal error sending MultiLEIA message');
@@ -62,7 +63,7 @@ module.exports.streamMultiLeiaMessage = async function streamMultiLeiaMessage(re
 
   try {
     const { message, turnId } = req.body || {};
-    const result = await multiLeiaService.sendMessage(
+    const result = await withTrace('runner.multileia.turn', () => multiLeiaService.sendMessage(
       req.params.sessionId,
       message,
       turnId,
@@ -70,7 +71,7 @@ module.exports.streamMultiLeiaMessage = async function streamMultiLeiaMessage(re
         onRoute: async (route) => writeSse(res, 'route', route),
         onMessage: async (event) => writeSse(res, 'message', { message: event }),
       }
-    );
+    ), { sessionId: req.params.sessionId, input: { type: 'multi-leia-stream', text: message } });
     writeSse(res, 'complete', {
       turnId: result.turnId,
       state: result.state,

@@ -1,3 +1,4 @@
+const { withGeneration } = require('./langfuseTracing');
 const { GoogleGenAI } = require("@google/genai");
 const prompts = require("../utils/prompts");
 const sharp = require("sharp");
@@ -90,10 +91,10 @@ async function generateAvatar(type, payload, apiKeyConfig) {
   }
 
   const ai = await getGeminiClient(apiKeyConfig);
-  const response = await ai.models.generateContent({
+  const response = await withGeneration('runner.image.avatar', 'gemini', IMAGE_MODEL, () => ai.models.generateContent({
     model: IMAGE_MODEL,
     contents: promptBuilder(payload),
-  });
+  }), { input: { type: 'avatar' } });
 
   const { buffer: sourceBuffer } = extractImage(response);
   const avatar = await compressAvatarToDataUrl(sourceBuffer);
@@ -139,13 +140,13 @@ function stringifyInfographicContext(context, includeSolution = false) {
 async function generateInfographic(behaviour, solution = false, apiKeyConfig) {
   const ai = await getGeminiClient(apiKeyConfig);
   const infographicContext = stringifyInfographicContext(behaviour, solution === true);
-  const response = await ai.models.generateContent({
+  const response = await withGeneration('runner.image.infographic', 'gemini', IMAGE_MODEL, () => ai.models.generateContent({
     model: IMAGE_MODEL,
     contents:
       solution === true
         ? prompts.infographicSolution(infographicContext)
         : prompts.infographic(infographicContext),
-  });
+  }), { input: { type: 'infographic' } });
 
   const { buffer: sourceBuffer, contentType } = extractImage(response);
   return {

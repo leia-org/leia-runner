@@ -1,3 +1,4 @@
+const { withGeneration } = require('../../services/langfuseTracing');
 require('dotenv').config();
 const OpenAI = require('openai');
 const BaseModel = require('./baseModel');
@@ -71,46 +72,48 @@ class OpenAIAssistantProvider extends BaseModel {
         }
       );
 
-      // Ejecutar el asistente
-      const run = await this.openai.beta.threads.runs.create(
-        threadId,
-        {
-          assistant_id: assistantId
-        }
-      );
+      await withGeneration('runner.model.generate', 'openai', undefined, async () => {
+        // Ejecutar el asistente
+        const run = await this.openai.beta.threads.runs.create(
+          threadId,
+          {
+            assistant_id: assistantId
+          }
+        );
 
-      // Esperar a que finalice la ejecución
-      let runStatus = await this.openai.beta.threads.runs.retrieve(
-        threadId,
-        run.id
-      );
-
-      // Esperar hasta que la ejecución se complete
-      while (runStatus.status === "queued" || runStatus.status === "in_progress") {
-        // Esperar 1 segundo antes de verificar de nuevo
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        runStatus = await this.openai.beta.threads.runs.retrieve(
+        // Esperar a que finalice la ejecución
+        let runStatus = await this.openai.beta.threads.runs.retrieve(
           threadId,
           run.id
         );
-      }
 
-      if (runStatus.status === "completed") {
-        // Obtener los mensajes más recientes
-        const messages = await this.openai.beta.threads.messages.list(threadId);
-
-        // El primer mensaje es el más reciente (respuesta del asistente)
-        const assistantMessage = messages.data.find(msg => msg.role === "assistant");
-
-        if (assistantMessage && assistantMessage.content.length > 0) {
-          // Extraer el contenido de texto del mensaje
-          const messageContent = assistantMessage.content[0].text.value;
-          return { message: messageContent };
-        } else {
-          throw new Error("No se encontró respuesta del asistente");
+        // Esperar hasta que la ejecución se complete
+        while (runStatus.status === "queued" || runStatus.status === "in_progress") {
+          // Esperar 1 segundo antes de verificar de nuevo
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          runStatus = await this.openai.beta.threads.runs.retrieve(
+            threadId,
+            run.id
+          );
         }
+        if (runStatus.status !== 'completed') {
+          throw new Error(`La ejecución del asistente falló con estado: ${runStatus.status}`);
+        }
+        return runStatus;
+      }, { input: { type: 'assistant-run', text: message } });
+
+      // Obtener los mensajes más recientes
+      const messages = await this.openai.beta.threads.messages.list(threadId);
+
+      // El primer mensaje es el más reciente (respuesta del asistente)
+      const assistantMessage = messages.data.find(msg => msg.role === "assistant");
+
+      if (assistantMessage && assistantMessage.content.length > 0) {
+        // Extraer el contenido de texto del mensaje
+        const messageContent = assistantMessage.content[0].text.value;
+        return { message: messageContent };
       } else {
-        throw new Error(`La ejecución del asistente falló con estado: ${runStatus.status}`);
+        throw new Error("No se encontró respuesta del asistente");
       }
     } catch (error) {
       console.error('Error enviando mensaje a OpenAI Assistant:', error);
@@ -152,8 +155,9 @@ class OpenAIAssistantProvider extends BaseModel {
         ${evaluationPrompt || ''}`;
 
       // Make a request to evaluate the solution
-      const response = await this.openai.chat.completions.create({
-        model: process.env.OPENAI_EVALUATION_MODEL || "gpt-5.4-mini",
+      const model = process.env.OPENAI_EVALUATION_MODEL || "gpt-5.4-mini";
+      const response = await withGeneration('runner.model.generate', 'openai', model, () => this.openai.chat.completions.create({
+        model,
         messages: [
           {
             role: "system",
@@ -165,7 +169,7 @@ class OpenAIAssistantProvider extends BaseModel {
           }
         ],
         response_format: { type: "json_object" }
-      });
+      }), { input: { type: 'classic-evaluation', text: prompt, includeText: false } });
 
       // Extract the content from the response
       const messageContent = response.choices[0].message.content;
@@ -187,17 +191,18 @@ class OpenAIAssistantProvider extends BaseModel {
     } = require('../../utils/rubricEvaluation');
 
     const prompt = `${buildRubricEvaluationPrompt({ rubric, context, language })}\n\nRespond ONLY with a valid JSON object matching:\n{\n  "summary": "...",\n  "sections": [{ "title": "...", "criteria": [{ "name": "...", "selectedLevel": "...", "justification": "..." }] }]\n}`;
-    const response = await this.openai.chat.completions.create({
-      model: process.env.OPENAI_EVALUATION_MODEL || 'gpt-5.4-mini',
+    const model = process.env.OPENAI_EVALUATION_MODEL || 'gpt-5.4-mini';
+    const response = await withGeneration('runner.model.generate', 'openai', model, () => this.openai.chat.completions.create({
+      model,
       messages: [
         { role: 'system', content: RUBRIC_EVALUATION_SYSTEM_PROMPT },
         { role: 'user', content: prompt },
       ],
       response_format: { type: 'json_object' },
-    });
+    }), { input: { type: 'rubric-evaluation', text: prompt, includeText: false } });
     const rawOutput = JSON.parse(response.choices[0].message.content);
     return scoreAndNormalizeRubricEvaluation(rubric, rawOutput);
   }
 }
 
-module.exports = new OpenAIAssistantProvider(); 
+module.exports = new OpenAIAssistantProvider();
