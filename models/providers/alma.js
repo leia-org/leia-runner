@@ -232,7 +232,7 @@ class AlmaProvider extends BaseModel {
       }
 
       return response.json();
-    });
+    }, { input: { type: 'chat-completion', messages } });
     const content = responseData?.choices?.[0]?.message?.content;
 
     if (typeof content !== 'string' || !content.trim()) {

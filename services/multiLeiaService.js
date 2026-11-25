@@ -546,7 +546,7 @@ class MultiLeiaService {
           instruction,
         });
 
-        const response = await sessionService.sendMessage(selectedActor.sessionId, prompt);
+        const response = await sessionService.sendMessage(selectedActor.sessionId, prompt, { traceInternal: true });
         const responseText = readString(
           typeof response === 'string' ? response : response?.message
         );

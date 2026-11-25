@@ -1,9 +1,14 @@
-const { SpanStatusCode } = require('@opentelemetry/api');
+const { createHmac } = require('node:crypto');
+const { context, createContextKey, SpanStatusCode } = require('@opentelemetry/api');
 const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-http');
 const { resourceFromAttributes } = require('@opentelemetry/resources');
 const { BatchSpanProcessor, NodeTracerProvider } = require('@opentelemetry/sdk-trace-node');
+const { describeInput, describeOutput } = require('../utils/traceContent');
+const { usageDetails } = require('../utils/traceUsage');
 
 const SERVICE_NAME = 'leia-runner';
+const TRACE_SESSION = createContextKey('leia-runner.langfuse.session');
+const PRIVATE_INPUT = createContextKey('leia-runner.langfuse.private-input');
 let telemetry;
 
 function getTelemetry() {
@@ -40,7 +45,13 @@ function getTelemetry() {
       ],
     });
     provider.register();
-    telemetry = { provider, tracer: provider.getTracer(SERVICE_NAME), environment };
+    telemetry = {
+      provider,
+      tracer: provider.getTracer(SERVICE_NAME),
+      environment,
+      sessionKey: secretKey,
+      captureText: process.env.LANGFUSE_TRACE_CONTENT === 'redacted',
+    };
   } catch {
     console.warn('Langfuse tracing could not be initialized');
   }
@@ -52,21 +63,24 @@ function modelName(value) {
   return typeof value === 'string' && /^[\w./:-]{1,128}$/.test(value) ? value : undefined;
 }
 
-function usageDetails(response) {
-  const usage = response?.usage ?? response?.usageMetadata;
-  const counts = {
-    input: usage?.input_tokens ?? usage?.prompt_tokens ?? usage?.total_input_tokens ?? usage?.promptTokenCount ?? response?.prompt_eval_count,
-    output: usage?.output_tokens ?? usage?.completion_tokens ?? usage?.total_output_tokens ?? usage?.candidatesTokenCount ?? response?.eval_count,
-    total: usage?.total_tokens ?? usage?.totalTokenCount,
-  };
-  return Object.fromEntries(Object.entries(counts).filter(([, count]) => Number.isSafeInteger(count) && count >= 0));
-}
-
-async function withTrace(name, operation, generation) {
+async function withTrace(name, operation, { generation, input, sessionId, hideChildInput = false } = {}) {
   const instance = getTelemetry();
   if (!instance) return operation();
 
-  const attributes = { 'langfuse.environment': instance.environment };
+  let activeContext = context.active();
+  const captureInputText = instance.captureText && !activeContext.getValue(PRIVATE_INPUT);
+  if (hideChildInput) activeContext = activeContext.setValue(PRIVATE_INPUT, true);
+  let traceSession = activeContext.getValue(TRACE_SESSION);
+  if (!traceSession && typeof sessionId === 'string' && sessionId) {
+    traceSession = createHmac('sha256', instance.sessionKey)
+      .update(instance.environment).update('\0').update(sessionId).digest('hex').slice(0, 32);
+    activeContext = activeContext.setValue(TRACE_SESSION, traceSession);
+  }
+  const attributes = {
+    'langfuse.environment': instance.environment,
+    'langfuse.observation.input': JSON.stringify(describeInput(input, captureInputText)),
+    ...(traceSession && { 'langfuse.session.id': traceSession }),
+  };
   if (generation) {
     attributes['langfuse.observation.type'] = 'generation';
     attributes['gen_ai.provider.name'] = generation.provider;
@@ -74,13 +88,14 @@ async function withTrace(name, operation, generation) {
     if (model) attributes['langfuse.observation.model.name'] = model;
   }
 
-  return instance.tracer.startActiveSpan(name, { attributes }, async (span) => {
+  return instance.tracer.startActiveSpan(name, { attributes }, activeContext, async (span) => {
     try {
       const response = await operation();
+      span.setAttribute('langfuse.observation.output', JSON.stringify(describeOutput(response, instance.captureText)));
       if (generation) {
         const model = modelName(response?.model);
         if (model) span.setAttribute('langfuse.observation.model.name', model);
-        const usage = usageDetails(response);
+        const usage = usageDetails(response, generation.provider);
         if (Object.keys(usage).length) {
           span.setAttribute('langfuse.observation.usage_details', JSON.stringify(usage));
         }
@@ -90,6 +105,11 @@ async function withTrace(name, operation, generation) {
     } catch (error) {
       // Provider exceptions can contain credentials, user data, and raw responses.
       span.setStatus({ code: SpanStatusCode.ERROR, message: generation ? 'Model call failed' : 'Runner operation failed' });
+      const status = error?.statusCode ?? error?.status;
+      span.setAttribute('langfuse.observation.output', JSON.stringify({
+        status: 'error',
+        ...(Number.isInteger(status) && status >= 400 && status <= 599 ? { httpStatus: status } : {}),
+      }));
       throw error;
     } finally {
       span.end();
@@ -97,8 +117,8 @@ async function withTrace(name, operation, generation) {
   });
 }
 
-function withGeneration(name, provider, model, operation) {
-  return withTrace(name, operation, { provider, model });
+function withGeneration(name, provider, model, operation, options) {
+  return withTrace(name, operation, { ...options, generation: { provider, model } });
 }
 
 async function shutdownTracing() {

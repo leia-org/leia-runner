@@ -173,7 +173,7 @@ class OllamaProvider extends BaseModel {
       }
 
       return responseData;
-    });
+    }, { input: { type: format ? 'structured-generation' : 'chat-completion', messages, includeText: !format } });
   }
 
   extractAssistantMessage(response) {
