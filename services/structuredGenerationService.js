@@ -143,7 +143,7 @@ class StructuredGenerationService {
         format: zodTextFormat(zodSchema, schemaName),
       },
       ...(reasoning ? { reasoning } : {}),
-    }));
+    }), { input: { type: 'structured-generation', text: userPrompt } });
 
     if (!response.output_parsed) {
       throw new Error('OpenAI did not return a structured response');
@@ -165,7 +165,7 @@ class StructuredGenerationService {
       input: userPrompt,
       system_instruction: systemPrompt,
       ...(geminiResponseFormat ? { response_format: geminiResponseFormat } : {}),
-    }));
+    }), { input: { type: 'structured-generation', text: userPrompt } });
 
     if (interaction.status && interaction.status !== 'completed') {
       throw new Error(`Gemini interaction finished with status: ${interaction.status}`);

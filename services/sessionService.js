@@ -179,8 +179,9 @@ class SessionService {
       const model = await modelManager.getModel(sessionData.provider, sessionData.apiKeyId, sessionData.apiKeyRequesterId, sessionModelToken);
 
       // Send the message through the model
+      const internal = options.internalTools === true || options.traceInternal === true;
       const response = await withTrace(
-        options.internalTools ? 'runner.multileia.router' : 'runner.chat',
+        options.internalTools ? 'runner.multileia.router' : internal ? 'runner.multileia.actor' : 'runner.chat',
         () => model.sendMessage({
           sessionId,
           message,
@@ -196,6 +197,17 @@ class SessionService {
           parallelToolCalls: options.parallelToolCalls,
           toolChoice: options.toolChoice,
         }),
+        {
+          sessionId,
+          hideChildInput: internal,
+          input: {
+            type: options.opening ? 'opening' : options.toolResults?.length ? 'tool-continuation' : 'message',
+            text: message,
+            includeText: !internal,
+            tools: Array.isArray(options.tools) ? options.tools.length : undefined,
+            toolResults: Array.isArray(options.toolResults) ? options.toolResults.length : undefined,
+          },
+        },
       );
 
       if (response?.sessionData) {

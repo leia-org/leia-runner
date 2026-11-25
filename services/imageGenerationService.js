@@ -94,7 +94,7 @@ async function generateAvatar(type, payload, apiKeyConfig) {
   const response = await withGeneration('runner.image.avatar', 'gemini', IMAGE_MODEL, () => ai.models.generateContent({
     model: IMAGE_MODEL,
     contents: promptBuilder(payload),
-  }));
+  }), { input: { type: 'avatar' } });
 
   const { buffer: sourceBuffer } = extractImage(response);
   const avatar = await compressAvatarToDataUrl(sourceBuffer);
@@ -146,7 +146,7 @@ async function generateInfographic(behaviour, solution = false, apiKeyConfig) {
       solution === true
         ? prompts.infographicSolution(infographicContext)
         : prompts.infographic(infographicContext),
-  }));
+  }), { input: { type: 'infographic' } });
 
   const { buffer: sourceBuffer, contentType } = extractImage(response);
   return {

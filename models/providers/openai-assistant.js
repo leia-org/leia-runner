@@ -100,7 +100,7 @@ class OpenAIAssistantProvider extends BaseModel {
           throw new Error(`La ejecución del asistente falló con estado: ${runStatus.status}`);
         }
         return runStatus;
-      });
+      }, { input: { type: 'assistant-run', text: message } });
 
       // Obtener los mensajes más recientes
       const messages = await this.openai.beta.threads.messages.list(threadId);
@@ -169,7 +169,7 @@ class OpenAIAssistantProvider extends BaseModel {
           }
         ],
         response_format: { type: "json_object" }
-      }));
+      }), { input: { type: 'classic-evaluation', text: prompt, includeText: false } });
 
       // Extract the content from the response
       const messageContent = response.choices[0].message.content;
@@ -199,10 +199,10 @@ class OpenAIAssistantProvider extends BaseModel {
         { role: 'user', content: prompt },
       ],
       response_format: { type: 'json_object' },
-    }));
+    }), { input: { type: 'rubric-evaluation', text: prompt, includeText: false } });
     const rawOutput = JSON.parse(response.choices[0].message.content);
     return scoreAndNormalizeRubricEvaluation(rubric, rawOutput);
   }
 }
 
-module.exports = new OpenAIAssistantProvider(); 
+module.exports = new OpenAIAssistantProvider();

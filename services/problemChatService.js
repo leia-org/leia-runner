@@ -220,7 +220,16 @@ class ProblemChatService {
     if (session.responseId) payload.previous_response_id = session.responseId;
     if (normalizedTools) payload.tools = normalizedTools;
 
-    const response = await withGeneration('runner.designer.chat', 'openai', model, () => client.responses.create(payload));
+    const response = await withGeneration('runner.designer.chat', 'openai', model, () => client.responses.create(payload), {
+      sessionId: chatId,
+      input: {
+        type: toolResults?.length ? 'tool-continuation' : 'message',
+        text: message,
+        attachments: input[0]?.content?.filter((item) => item.type === 'input_file').length ?? 0,
+        tools: normalizedTools?.length ?? 0,
+        toolResults: Array.isArray(toolResults) ? toolResults.length : 0,
+      },
+    });
     if (response?.error) {
       throw new Error(response.error.message || 'OpenAI response error');
     }
