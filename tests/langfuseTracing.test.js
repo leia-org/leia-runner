@@ -48,6 +48,11 @@ describe('Langfuse tracing', () => {
         input: { type: 'message', text: 'Please debug token=public secret=private-value and sk-lf-example-private' },
       });
       expect(result).toBe(modelOutput);
+      await withTrace('runner.finished.private', () =>
+        withGeneration('runner.finished.private.child', 'openai', 'gpt-test', async () => modelOutput), {
+        sessionId: 'raw-parent-session',
+        suppressTracing: true,
+      });
       await shutdownTracing();
 
       expect(requests).toHaveLength(1);
@@ -56,6 +61,8 @@ describe('Langfuse tracing', () => {
       expect(request.authorization).toBe(`Basic ${Buffer.from('fixture-public-key:fixture-secret-key').toString('base64')}`);
       expect(request.payload).not.toMatch(/Private (raw|child)|fixture-secret-key|private-value|sk-lf-example-private|student@example|raw-(parent|child)-session/);
       const spans = JSON.parse(request.payload).resourceSpans[0].scopeSpans[0].spans;
+      expect(spans.map(({ name }) => name)).not.toContain('runner.finished.private.child');
+      expect(spans.map(({ name }) => name)).not.toContain('runner.finished.private');
       const root = spans.find(({ name }) => name === 'runner.chat');
       const generation = spans.find(({ name }) => name === 'runner.model.generate');
       const failure = spans.find(({ name }) => name === 'runner.model.error');
@@ -94,5 +101,49 @@ describe('Langfuse tracing', () => {
         output_tokens: 40, output_tokens_details: { reasoning_tokens: 10 }, total_tokens: 140,
       },
     }, 'openai')).toEqual({ input: 40, input_cached_tokens: 60, output: 40, total: 140 });
+  });
+});
+
+describe('Langfuse session trace removal', () => {
+  const id = 'abcdef1234567890abcdef12';
+  const from = '2026-11-25T08:00:00.000Z';
+
+  it('only deletes traces that match both the hashed session and the environment', async () => {
+    vi.stubEnv('LANGFUSE_BASE_URL', 'http://127.0.0.1:12345');
+    vi.stubEnv('LANGFUSE_PUBLIC_KEY', 'fixture-public-key');
+    vi.stubEnv('LANGFUSE_SECRET_KEY', 'fixture-secret-key');
+    vi.stubEnv('LANGFUSE_TRACING_ENVIRONMENT', 'integration-test');
+    const { langfuseSessionId, getLangfuseConfig } = require('../services/langfuseTracing');
+    const { removeSessionTraces } = require('../controllers/traceRetentionController');
+    const sessionId = langfuseSessionId(id, getLangfuseConfig());
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json({ data: [{ id: 'other', sessionId, environment: 'production' }] }))
+      .mockResolvedValueOnce(Response.json({ data: [{ id: 'trace-a', sessionId, environment: 'integration-test' }] }))
+      .mockResolvedValueOnce(Response.json({}))
+      .mockResolvedValueOnce(Response.json({ data: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    const response = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    const req = { params: { sessionId: id }, query: { from } };
+    try {
+      await removeSessionTraces(req, response);
+      expect(response.status).toHaveBeenLastCalledWith(502);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await removeSessionTraces(req, response);
+      const lookup = new URL(fetchMock.mock.calls[1][0]);
+      expect(Object.fromEntries(lookup.searchParams)).toMatchObject({
+        sessionId, fromTimestamp: from, environment: 'integration-test', fields: 'core',
+      });
+      expect(fetchMock.mock.calls[2][1]).toMatchObject({
+        method: 'DELETE', body: JSON.stringify({ traceIds: ['trace-a'] }),
+      });
+      expect(response.status).toHaveBeenLastCalledWith(202);
+      expect(response.json).toHaveBeenLastCalledWith({ complete: false });
+      await removeSessionTraces(req, response);
+      expect(response.json).toHaveBeenLastCalledWith({ complete: true });
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
   });
 });

@@ -12,6 +12,7 @@ const supervisorController = require('../controllers/supervisorController');
 const imageGenerationController = require('../controllers/imageGenerationController');
 const multiLeiasController = require('../controllers/multiLeiasController');
 const conversationDynamicsController = require('../controllers/conversationDynamicsController');
+const traceRetentionController = require('../controllers/traceRetentionController');
 const multer = require('multer');
 const { bearerAuth } = require('../utils/auth');
 
@@ -26,6 +27,7 @@ router.post('/leias', leiasController.createLeia);
 
 // Endpoint para enviar mensajes a LEIA
 router.post('/leias/:sessionId/messages', leiasController.sendLeiaMessage);
+router.delete('/leias/:sessionId/traces', traceRetentionController.removeSessionTraces);
 
 // Text-only MultiLEIA runtime. Each actor gets an isolated provider session;
 // the runtime traverses an implicit graph and returns the public messages
