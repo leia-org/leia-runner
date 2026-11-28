@@ -1,8 +1,21 @@
 const { withTrace } = require('./langfuseTracing');
 const { redisClient } = require('../config/redis');
-const { getSessionTtlSeconds } = require('../config/sessionTtl');
-const { CONVERSATION_KEY_PREFIX } = require('../models/conversationStore');
+const { getConversationTtlSeconds, getSessionTtlSeconds } = require('../config/sessionTtl');
+const { CONVERSATION_KEY_PREFIX, ConversationStore } = require('../models/conversationStore');
+const ApiKeyProvider = require('../models/constants');
 const modelManager = require('../models/modelManager');
+
+const nativeConversationStores = new Map([
+  [ApiKeyProvider.OPENAI, new ConversationStore({ providerName: 'openai' })],
+  [ApiKeyProvider.GEMINI, new ConversationStore({ providerName: 'gemini' })],
+]);
+
+function isNativeCacheEnabled(provider) {
+  const suffix = 'CONVERSATION_CACHE_ENABLED';
+  const override = process.env[`${provider.toUpperCase()}_${suffix}`];
+  const value = override?.trim() || process.env[suffix]?.trim();
+  return ['1', 'true', 'yes', 'on'].includes(value?.toLowerCase());
+}
 
 class SessionService {
   constructor() {
@@ -17,9 +30,7 @@ class SessionService {
    * @param {string[]} keys - Redis keys
    * @returns {Promise<void>}
    */
-  async expireKeys(keys) {
-    const ttlSeconds = getSessionTtlSeconds();
-
+  async expireKeys(keys, ttlSeconds = getSessionTtlSeconds()) {
     if (ttlSeconds <= 0) {
       return;
     }
@@ -34,10 +45,9 @@ class SessionService {
    * @returns {Promise<void>}
    */
   async touchSession(sessionId) {
-    await this.expireKeys([
-      `${this.keyPrefix}${sessionId}`,
-      `${this.leiaMetaPrefix}${sessionId}`,
-      `${this.conversationPrefix}${sessionId}`,
+    await Promise.all([
+      this.expireKeys([`${this.keyPrefix}${sessionId}`, `${this.leiaMetaPrefix}${sessionId}`]),
+      this.expireKeys([`${this.conversationPrefix}${sessionId}`], getConversationTtlSeconds()),
     ]);
   }
 
@@ -152,7 +162,19 @@ class SessionService {
     await redisClient.del([
       `${this.keyPrefix}${sessionId}`,
       `${this.leiaMetaPrefix}${sessionId}`,
+      `${this.conversationPrefix}${sessionId}`,
     ]);
+  }
+
+  async clearNativeConversation(sessionId, provider) {
+    const store = nativeConversationStores.get(provider);
+    if (!store) return;
+
+    try {
+      await store.clearConversation(sessionId);
+    } catch {
+      console.warn('Unable to clear native provider conversation cache');
+    }
   }
 
   async sendMessage(sessionId, message, options = {}) {
@@ -213,6 +235,17 @@ class SessionService {
       if (response?.sessionData) {
         await this.updateSession(sessionId, response.sessionData);
         delete response.sessionData;
+      }
+
+      const store = nativeConversationStores.get(sessionData.provider);
+      const openingReplay = options.opening && sessionData.providerState?.openingPending === true;
+      if (store && !internal && !openingReplay && isNativeCacheEnabled(sessionData.provider) && response) {
+        try {
+          const userText = options.opening || options.toolResults?.length ? undefined : message;
+          await store.appendTurn(sessionId, userText, response.message);
+        } catch {
+          console.warn('Unable to write native provider conversation cache');
+        }
       }
 
       return response;

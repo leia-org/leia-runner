@@ -77,6 +77,7 @@ module.exports.evaluateSolution = async function evaluateSolution(req, res) {
         context: evaluationContext,
         language: language || leiaMeta?.language || 'en',
       }), { sessionId, suppressTracing: suppressTracing === true, hideChildInput: true, input: { type: 'rubric-evaluation', text: result } });
+      if (sessionData) await sessionService.clearNativeConversation(sessionId, sessionData.provider);
       return res.status(200).send(evaluationResult);
     }
 
@@ -86,6 +87,7 @@ module.exports.evaluateSolution = async function evaluateSolution(req, res) {
       result
     }), { sessionId, suppressTracing: suppressTracing === true, hideChildInput: true, input: { type: 'classic-evaluation', text: result } });
 
+    if (sessionData) await sessionService.clearNativeConversation(sessionId, sessionData.provider);
     res.status(200).send({
       evaluationMode: 'classic',
       ...evaluationResult,
