@@ -1,3 +1,4 @@
+const { withGeneration } = require('./langfuseTracing');
 const { OpenAI } = require('openai');
 const { zodTextFormat } = require('openai/helpers/zod');
 
@@ -49,7 +50,7 @@ class StructuredGenerationService {
         });
       } catch (error) {
         throw new Error(
-          `No se pudo cargar @google/genai. Asegurate de usar Node 20+ y tener la dependencia instalada. Detalle: ${error.message}`
+          `Could not load @google/genai. Make sure you use Node 20+ and have the dependency installed. Detail: ${error.message}`
         );
       }
     }
@@ -66,8 +67,34 @@ class StructuredGenerationService {
     geminiModel,
     geminiResponseFormat,
     reasoning,
+    runnerConfiguration,
   }) {
-    const provider = this.resolveProvider();
+    let provider;
+    let client;
+    if (runnerConfiguration) {
+      const { apiKeyId, apiKeyRequesterId, modelName } = runnerConfiguration;
+      if (!apiKeyId || !apiKeyRequesterId || !modelName) throw new Error('BYOK credentials and modelName are required');
+      const manager = require('../models/modelManager');
+      const providerModule = runnerConfiguration.provider === 'default' || !runnerConfiguration.provider
+        ? manager.defaultModel : runnerConfiguration.provider;
+      const Provider = manager.providerModules.get(providerModule);
+      if (!Provider) throw new Error(`Unknown BYOK provider: ${providerModule}`);
+      provider = new Provider().apiKeyProvider;
+      if (!SUPPORTED_PROVIDERS.has(provider)) throw new Error(`Structured BYOK generation does not support ${provider}`);
+      const { keyValue, baseUrl } = await require('./apiKeyService').getApiKeyData(provider, apiKeyId, apiKeyRequesterId);
+      // Per-request clients avoid sharing credentials between users. Never
+      // fall back to environment keys when a BYOK request fails.
+      if (provider === 'openai') {
+        client = new OpenAI({ apiKey: keyValue, ...(baseUrl ? { baseURL: baseUrl } : {}) });
+        openaiModel = modelName;
+      } else {
+        const { GoogleGenAI } = require('@google/genai');
+        client = new GoogleGenAI({ apiKey: keyValue, ...(baseUrl ? { httpOptions: { baseUrl } } : {}) });
+        geminiModel = modelName;
+      }
+    } else {
+      provider = this.resolveProvider();
+    }
 
     if (provider === 'gemini') {
       return this.generateWithGemini({
@@ -76,6 +103,7 @@ class StructuredGenerationService {
         zodSchema,
         geminiModel,
         geminiResponseFormat,
+        client,
       });
     }
 
@@ -86,6 +114,7 @@ class StructuredGenerationService {
       schemaName,
       openaiModel,
       reasoning,
+      client,
     });
   }
 
@@ -96,8 +125,9 @@ class StructuredGenerationService {
     schemaName,
     openaiModel,
     reasoning,
+    client,
   }) {
-    const response = await this.getOpenAIClient().responses.parse({
+    const response = await withGeneration('runner.structured.generate', 'openai', openaiModel, () => (client || this.getOpenAIClient()).responses.parse({
       model: openaiModel,
       input: [
         {
@@ -113,7 +143,7 @@ class StructuredGenerationService {
         format: zodTextFormat(zodSchema, schemaName),
       },
       ...(reasoning ? { reasoning } : {}),
-    });
+    }), { input: { type: 'structured-generation', text: userPrompt } });
 
     if (!response.output_parsed) {
       throw new Error('OpenAI did not return a structured response');
@@ -128,13 +158,14 @@ class StructuredGenerationService {
     zodSchema,
     geminiModel,
     geminiResponseFormat,
+    client,
   }) {
-    const interaction = await this.getGeminiClient().interactions.create({
+    const interaction = await withGeneration('runner.structured.generate', 'gemini', geminiModel, () => (client || this.getGeminiClient()).interactions.create({
       model: geminiModel,
       input: userPrompt,
       system_instruction: systemPrompt,
       ...(geminiResponseFormat ? { response_format: geminiResponseFormat } : {}),
-    });
+    }), { input: { type: 'structured-generation', text: userPrompt } });
 
     if (interaction.status && interaction.status !== 'completed') {
       throw new Error(`Gemini interaction finished with status: ${interaction.status}`);
@@ -157,15 +188,17 @@ class StructuredGenerationService {
   }
 
   extractTextFromInteraction(interaction) {
-    if (!interaction || !Array.isArray(interaction.outputs)) {
+    if (!interaction || !Array.isArray(interaction.steps)) {
       return '';
     }
 
-    return interaction.outputs
-      .filter((output) => output?.type === 'text' && typeof output.text === 'string')
-      .map((output) => output.text.trim())
-      .filter(Boolean)
-      .join('\n\n');
+    return interaction.steps
+    .filter(step => step?.type === 'model_output' && Array.isArray(step.content))
+    .flatMap(step => step.content)
+    .filter(content => content?.type === 'text' && typeof content.text === 'string')
+    .map(content => content.text.trim())
+    .filter(Boolean)
+    .join('\n\n');
   }
 
   sanitizeJsonResponse(responseText) {

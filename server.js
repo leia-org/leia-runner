@@ -1,11 +1,11 @@
 const express = require('express');
 const swaggerUi = require('swagger-ui-express');
-const YAML = require('yamljs');
 const cors = require('cors');
-const { redisClient } = require('./config/redis');
+const path = require('path');
+const { redisClient, initRedis } = require('./config/redis');
 const modelSyncService = require('./services/modelSyncService');
 const modelManager = require('./models/modelManager');
-
+const { shutdownTracing } = require('./services/langfuseTracing');
 const app = express();
 const port = process.env.PORT || 5000;
 
@@ -13,25 +13,33 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Cargar la especificación OpenAPI
-const swaggerDocument = YAML.load('./api/openapi.yml');
-
 // Configurar Swagger UI
-app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+app.use('/openapi', express.static(path.join(__dirname, 'api')));
+app.use(
+  '/docs',
+  swaggerUi.serve,
+  swaggerUi.setup(null, {
+    swaggerUrl: '/openapi/openapi.yml',
+    swaggerOptions: {
+      persistAuthorization: true,
+    },
+  })
+);
 
 // Rutas
 app.use('/api/v1', require('./routes/leiasRoutes'));
+app.use('/api/v1', require('./routes/apiKeyRoutes'));
 
 // Inicializar Redis y sincronizar modelos
 async function initializeServer() {
   try {
     // Conectar a Redis
-    await redisClient.connect();
+    await initRedis();
     console.log('Connected to Redis');
 
     // Inicializar modelos
-    await modelManager.initializeModels();
-    console.log('Models initialized');
+    await modelManager.initializeProviderModules();
+    console.log('Provider modulesinitialized');
 
     // Sincronizar modelos en Redis
     await modelSyncService.syncModels();
@@ -49,12 +57,19 @@ async function initializeServer() {
 
 initializeServer();
 
-// Gracefully shutdown the server
-process.on('SIGINT', () => {
-    console.log('Received SIGINT. Gracefully shutting down...');
+let shuttingDown = false;
+async function shutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`Received ${signal}. Gracefully shutting down...`);
+    const deadline = setTimeout(() => process.exit(0), 5000).unref();
+    await Promise.allSettled([
+        redisClient.isOpen ? redisClient.disconnect() : undefined,
+        shutdownTracing(),
+    ]);
+    clearTimeout(deadline);
     process.exit(0);
-});
-process.on('SIGTERM', () => {
-    console.log('Received SIGTERM. Gracefully shutting down...');
-    process.exit(0);
-});
+}
+
+process.on('SIGINT', () => void shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));

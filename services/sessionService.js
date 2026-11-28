@@ -1,10 +1,54 @@
+const { withTrace } = require('./langfuseTracing');
 const { redisClient } = require('../config/redis');
+const { getConversationTtlSeconds, getSessionTtlSeconds } = require('../config/sessionTtl');
+const { CONVERSATION_KEY_PREFIX, ConversationStore } = require('../models/conversationStore');
+const ApiKeyProvider = require('../models/constants');
 const modelManager = require('../models/modelManager');
+
+const nativeConversationStores = new Map([
+  [ApiKeyProvider.OPENAI, new ConversationStore({ providerName: 'openai' })],
+  [ApiKeyProvider.GEMINI, new ConversationStore({ providerName: 'gemini' })],
+]);
+
+function isNativeCacheEnabled(provider) {
+  const suffix = 'CONVERSATION_CACHE_ENABLED';
+  const override = process.env[`${provider.toUpperCase()}_${suffix}`];
+  const value = override?.trim() || process.env[suffix]?.trim();
+  return ['1', 'true', 'yes', 'on'].includes(value?.toLowerCase());
+}
 
 class SessionService {
   constructor() {
     this.keyPrefix = 'session:';
     this.leiaMetaPrefix = 'leia:meta:';
+    this.conversationPrefix = CONVERSATION_KEY_PREFIX;
+  }
+
+  /**
+   * Restarts the expiration of the given keys (see config/sessionTtl.js).
+   * EXPIRE on a missing key is a no-op, so callers do not need to check.
+   * @param {string[]} keys - Redis keys
+   * @returns {Promise<void>}
+   */
+  async expireKeys(keys, ttlSeconds = getSessionTtlSeconds()) {
+    if (ttlSeconds <= 0) {
+      return;
+    }
+
+    await Promise.all(keys.map((key) => redisClient.expire(key, ttlSeconds)));
+  }
+
+  /**
+   * Keeps every key of an active session alive: the session hash, its LEIA
+   * metadata and its conversation history.
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<void>}
+   */
+  async touchSession(sessionId) {
+    await Promise.all([
+      this.expireKeys([`${this.keyPrefix}${sessionId}`, `${this.leiaMetaPrefix}${sessionId}`]),
+      this.expireKeys([`${this.conversationPrefix}${sessionId}`], getConversationTtlSeconds()),
+    ]);
   }
 
   serializeSessionData(sessionData) {
@@ -60,34 +104,42 @@ class SessionService {
       `${this.keyPrefix}${sessionId}`,
       this.serializeSessionData(mergedSessionData)
     );
+    await this.expireKeys([`${this.keyPrefix}${sessionId}`]);
 
     return mergedSessionData;
   }
 
-  async createSession(sessionId, prompt, modelName = 'default') {
+  // Darle caña aqui
+  async createSession(sessionId, prompt, modelName, provider, apiKeyId, apiKeyRequesterId) {
     try {
       // Get the model
-      const model = modelManager.getModel(modelName);
-      
+       //"provider,keyId" //no singleton quiza es mejor modelname:apiKeyId,
+       // en vd es lo mismo pq el modelName nos da igual pa eso
+       //Ahora msimo se va a hacr con el providerModule pero de cara a usar vrios modelos distintos se podri aplantear tb el modelo
+      const sessionModelToken = `${provider}:${modelName}:${apiKeyId}`;
+      const model = await modelManager.getModel(provider, apiKeyId, apiKeyRequesterId, sessionModelToken);
       // Create a session with the selected provider
       const sessionDetails = await model.createSession({
         instructions: prompt
       });
-      
+
       // Save session information in Redis
       const sessionData = {
         sessionId,
-        modelName,
+        provider: provider,//(provider)
+        modelName: modelName,
+        apiKeyId: apiKeyId,
+        apiKeyRequesterId: apiKeyRequesterId,
         threadId: sessionDetails.threadId ?? '',
         providerState: sessionDetails.providerState ?? '',
         createdAt: Date.now()
       };
-      
+
       await redisClient.hSet(
         `${this.keyPrefix}${sessionId}`,
         this.serializeSessionData(sessionData)
       );
-      
+      await this.expireKeys([`${this.keyPrefix}${sessionId}`]);
       return sessionData;
     } catch (error) {
       console.error(`Error creating session ${sessionId}:`, error);
@@ -98,7 +150,7 @@ class SessionService {
   async getSession(sessionId) {
     try {
       const sessionData = await redisClient.hGetAll(`${this.keyPrefix}${sessionId}`);
-      
+
       return this.deserializeSessionData(sessionData);
     } catch (error) {
       console.error(`Error getting session ${sessionId}:`, error);
@@ -106,57 +158,99 @@ class SessionService {
     }
   }
 
-  async sendMessage(sessionId, message) {
+  async deleteSession(sessionId) {
+    await redisClient.del([
+      `${this.keyPrefix}${sessionId}`,
+      `${this.leiaMetaPrefix}${sessionId}`,
+      `${this.conversationPrefix}${sessionId}`,
+    ]);
+  }
+
+  async clearNativeConversation(sessionId, provider) {
+    const store = nativeConversationStores.get(provider);
+    if (!store) return;
+
+    try {
+      await store.clearConversation(sessionId);
+    } catch {
+      console.warn('Unable to clear native provider conversation cache');
+    }
+  }
+
+  async sendMessage(sessionId, message, options = {}) {
     try {
       // Get the session
       const sessionData = await this.getSession(sessionId);
-      
+
       if (!sessionData) {
         return null; // Return null instead of throwing an error
       }
-      
-      // Get the model for this session
-      const model = modelManager.getModel(sessionData.modelName);
-      
+
+      // Activity keeps the session alive, so it never expires mid-conversation.
+      await this.touchSession(sessionId);
+
+      // Honor the activity-level gate set at createLeia. Trusted Runner-only
+      // sessions, such as the private MultiLEIA coordinator, can explicitly
+      // enable their internal tools without exposing them to participants.
+      const leiaMeta = await this.getLeiaMeta(sessionId);
+      const allowTools =
+        options.internalTools === true || leiaMeta?.toolFunctionsEnabled === 'true';
+
+      // Get the model for this session (BYOK: resolved by provider + api key).
+      const sessionModelToken = `${sessionData.provider}:${sessionData.modelName}:${sessionData.apiKeyId}`;
+      const model = await modelManager.getModel(sessionData.provider, sessionData.apiKeyId, sessionData.apiKeyRequesterId, sessionModelToken);
+
       // Send the message through the model
-      const response = await model.sendMessage({
-        sessionId,
-        message,
-        sessionData
-      });
+      const internal = options.internalTools === true || options.traceInternal === true;
+      const response = await withTrace(
+        options.internalTools ? 'runner.multileia.router' : internal ? 'runner.multileia.actor' : 'runner.chat',
+        () => model.sendMessage({
+          sessionId,
+          message,
+          sessionData,
+          opening: options.opening === true,
+          // Hidden per-turn context. Providers that support it answer with
+          // `contextApplied: true`; the others ignore it.
+          context: typeof options.context === 'string' ? options.context : undefined,
+          allowTools,
+          tools: allowTools ? options.tools : undefined,
+          toolResults: allowTools ? options.toolResults : undefined,
+          internalTools: options.internalTools === true,
+          parallelToolCalls: options.parallelToolCalls,
+          toolChoice: options.toolChoice,
+        }),
+        {
+          sessionId,
+          hideChildInput: internal,
+          input: {
+            type: options.opening ? 'opening' : options.toolResults?.length ? 'tool-continuation' : 'message',
+            text: message,
+            includeText: !internal,
+            tools: Array.isArray(options.tools) ? options.tools.length : undefined,
+            toolResults: Array.isArray(options.toolResults) ? options.toolResults.length : undefined,
+          },
+        },
+      );
 
       if (response?.sessionData) {
         await this.updateSession(sessionId, response.sessionData);
         delete response.sessionData;
       }
-      
+
+      const store = nativeConversationStores.get(sessionData.provider);
+      const openingReplay = options.opening && sessionData.providerState?.openingPending === true;
+      if (store && !internal && !openingReplay && isNativeCacheEnabled(sessionData.provider) && response) {
+        try {
+          const userText = options.opening || options.toolResults?.length ? undefined : message;
+          await store.appendTurn(sessionId, userText, response.message);
+        } catch {
+          console.warn('Unable to write native provider conversation cache');
+        }
+      }
+
       return response;
     } catch (error) {
       console.error(`Error sending message in session ${sessionId}:`, error);
-      throw error;
-    }
-  }
-
-  /**
-   * Clears the cached conversation associated with a session, if the model supports it.
-   * @param {string} sessionId - Session ID
-   * @returns {Promise<void>}
-   */
-  async clearConversation(sessionId) {
-    try {
-      const sessionData = await this.getSession(sessionId);
-
-      if (!sessionData) {
-        return;
-      }
-
-      const model = modelManager.getModel(sessionData.modelName);
-
-      if (model && typeof model.clearConversation === 'function') {
-        await model.clearConversation(sessionId);
-      }
-    } catch (error) {
-      console.error(`Error clearing conversation cache for session ${sessionId}:`, error);
       throw error;
     }
   }
@@ -171,16 +265,17 @@ class SessionService {
     try {
       // Convertir el objeto metadata a un formato que Redis pueda almacenar
       const redisMetadata = {};
-      
+
       // Asegurarse de que todos los valores sean strings
       for (const [key, value] of Object.entries(metadata)) {
         redisMetadata[key] = value !== null && value !== undefined ? String(value) : '';
       }
-      
+
       await redisClient.hSet(
         `${this.leiaMetaPrefix}${sessionId}`,
         redisMetadata
       );
+      await this.expireKeys([`${this.leiaMetaPrefix}${sessionId}`]);
     } catch (error) {
       console.error(`Error storing LEIA metadata for session ${sessionId}:`, error);
       throw error;
@@ -195,11 +290,11 @@ class SessionService {
   async getLeiaMeta(sessionId) {
     try {
       const metadata = await redisClient.hGetAll(`${this.leiaMetaPrefix}${sessionId}`);
-      
+
       if (!metadata || Object.keys(metadata).length === 0) {
         return null;
       }
-      
+
       return metadata;
     } catch (error) {
       console.error(`Error getting LEIA metadata for session ${sessionId}:`, error);
@@ -209,4 +304,4 @@ class SessionService {
 }
 
 const sessionService = new SessionService();
-module.exports = sessionService; 
+module.exports = sessionService;

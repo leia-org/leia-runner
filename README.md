@@ -4,28 +4,11 @@ API for interacting with LEIA instances.
 
 ## Requirements
 
-- Node.js 16+
-- PNPM
+- Node.js 20+
+- npm
 - Redis
 
 ## Usage
-
-### Environment variables
-
-Use `.env.example` as reference. For conversation cache behavior in Redis, you can control it with one switch:
-
-- Global: `CONVERSATION_CACHE_ENABLED=true|false`
-- TTL de conversaciones: `CONVERSATION_HISTORY_TTL=2629800` (seconds; default 2629800 = 1 month)
-- Provider overrides:
-  - `OPENAI_CONVERSATION_CACHE_ENABLED=true|false`
-  - `GEMINI_CONVERSATION_CACHE_ENABLED=true|false`
-  - `OLLAMA_CONVERSATION_CACHE_ENABLED=true|false`
-
-Priority order:
-
-1. Provider-specific variable
-2. Global variable
-3. Default value (`true`)
 
 ### Start the server
 
@@ -36,8 +19,71 @@ npm start
 ### Start the server in development mode
 
 ```bash
-npm dev
+npm run dev
 ```
+
+### Tests
+
+```bash
+npm run test:unit      # unit tests, no network or Redis needed
+npm run test:provider  # OpenAI and Gemini integration (OPENAI_API_KEY, GEMINI_API_KEY)
+npm run test:alma      # ALMA unit and integration tests (ALMA_API_KEY)
+```
+
+## Model providers
+
+Each file in `models/providers/` is a provider module. `GET /api/v1/models`
+lists them, together with the API key provider each one accepts and the model
+it serves. The designer and the workbench build their provider and model
+choices from that response.
+
+API keys are not configured in the runner. A LEIA session carries an
+`apiKeyId`, and the runner resolves the key (and, for some providers, its base
+URL) from leia-auth (`VITE_AUTH_SERVICE_BACKEND`, `INTERN_TOKEN`).
+
+| Module | API key provider | Notes |
+|---|---|---|
+| `openai-responses` | `openai` | Only provider with tool calling (widgets) |
+| `gemini-3.1-flash-lite-preview` | `gemini` | |
+| `ollama` | `ollama` | Local models; history kept in Redis |
+| `alma` | `alma` | ALMA (alma.us.es); history kept in Redis |
+
+### ALMA
+
+[ALMA](https://alma.us.es) serves each model behind its own OpenAI-compatible
+base URL, `https://alma.us.es/api/models/{slug}/v1`, and authenticates with the
+`apikey` header. To use it, create a LEIA API key with provider `alma`, the ALMA
+key and that base URL; the key's base URL overrides `ALMA_BASE_URL`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ALMA_BASE_URL` | `https://alma.us.es/api/models/llama-3.1-8b-instruct/v1` | Base URL when the API key has none |
+| `ALMA_MODEL` | `meta-llama/Llama-3.1-8B-Instruct` for the default URL | Optional model ID for the configured fallback URL |
+| `ALMA_MAX_TOKENS` | `1024` | Max tokens per reply |
+| `ALMA_EVALUATION_MAX_TOKENS` | `2048` | Max tokens per solution evaluation |
+| `ALMA_TEMPERATURE` | `0.7` | Sampling temperature |
+| `ALMA_HISTORY_MAX_MESSAGES` | `CONVERSATION_HISTORY_MAX_MESSAGES` | Messages kept in the history |
+
+For a different API-key base URL, Runner discovers the model ID from
+`<base URL>/models` and uses the returned ID in completions. URL overrides must
+use HTTPS on `alma.us.es` or the configured ALMA origin.
+
+## Session expiration
+
+Sessions, their LEIA metadata, their conversation history and MultiLEIA
+runtimes expire from Redis `SESSION_TTL_SECONDS` after their last activity
+(default `86400`, 24 h). Every message restarts the countdown. `0` disables
+expiration.
+
+Set `CONVERSATION_HISTORY_TTL` to a positive number of seconds to expire the
+conversation history sooner. Choose a value that covers idle time for ALMA
+and Ollama, which use Redis history to continue conversations.
+
+OpenAI and Gemini use their provider-side state to continue conversations.
+An optional Redis copy of participant dialogue can be enabled with
+`CONVERSATION_CACHE_ENABLED=true`. Override it for either provider with
+`OPENAI_CONVERSATION_CACHE_ENABLED` or `GEMINI_CONVERSATION_CACHE_ENABLED`.
+Redis copies are disabled by default and cleared after a successful evaluation.
 
 ## API
 
@@ -68,7 +114,10 @@ Authorization: Bearer YOUR_RUNNER_KEY
     }
   },
   "runnerConfiguration": {
-    "provider": "openai"
+    "provider": "alma",
+    "modelName": "meta-llama/Llama-3.1-8B-Instruct",
+    "apiKeyId": "leia-auth-api-key-id",
+    "apiKeyRequesterId": "leia-auth-user-id"
   }
 }
 ```
@@ -125,8 +174,20 @@ Authorization: Bearer YOUR_RUNNER_KEY
 
 ```json
 {
-  "models": ["openai", "openai-responses", "openai-advanced"],
-  "default": "openai-advanced"
+  "models": ["alma", "gemini-3.1-flash-lite-preview", "ollama", "openai-responses"],
+  "default": "openai-responses",
+  "apiKeyProviders": {
+    "alma": ["meta-llama/Llama-3.1-8B-Instruct"],
+    "gemini": ["gemini-3.1-flash-lite-preview"],
+    "ollama": ["gemma3:4b"],
+    "openai": ["gpt-5.4-mini"]
+  },
+  "providerProviderModuleMap": {
+    "alma": "alma",
+    "gemini": "gemini-3.1-flash-lite-preview",
+    "ollama": "ollama",
+    "openai": "openai-responses"
+  }
 }
 ```
 

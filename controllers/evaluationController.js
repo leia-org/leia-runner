@@ -1,50 +1,99 @@
+const { withTrace } = require('../services/langfuseTracing');
 const modelManager = require('../models/modelManager');
 const sessionService = require('../services/sessionService');
 
-module.exports.evaluateSolution = async function evaluateSolution(req, res) {
-  let conversationClearable = false;
-
+function parseStoredRubric(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
   try {
-    const { sessionId, result } = req.body;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
 
-    if (!sessionId || !result) {
+module.exports.evaluateSolution = async function evaluateSolution(req, res) {
+  try {
+    const {
+      sessionId,
+      result,
+      evaluationMode,
+      rubric: requestRubric,
+      context,
+      language,
+      runnerConfiguration,
+      suppressTracing,
+    } = req.body || {};
+
+    if (!sessionId) {
+      return res.status(400).send({ error: 'SessionId is required' });
+    }
+
+    const mode = evaluationMode === 'rubric' ? 'rubric' : 'classic';
+
+    if (mode === 'classic' && !result) {
       return res.status(400).send({ error: 'SessionId and result are required' });
     }
 
-    // Obtener la sesión
+    // Obtener la sesión en Redis (o usar runnerConfiguration explícito si la sesión
+    // ya no está en caché, p. ej. audio Luke / MultiLEIA / sesión expirada).
     const sessionData = await sessionService.getSession(sessionId);
-    if (!sessionData) {
+    const providerConfig = sessionData || runnerConfiguration;
+    if (!providerConfig?.provider) {
       return res.status(404).send({ error: `Session with ID: ${sessionId} not found` });
     }
 
-    // Obtener los metadatos de LEIA
     const leiaMeta = await sessionService.getLeiaMeta(sessionId);
-    if (!leiaMeta) {
+    if (mode === 'classic' && !leiaMeta) {
       return res.status(404).send({ error: `LEIA metadata for session ID: ${sessionId} not found` });
     }
 
-    conversationClereable = true;
+    const token = `${providerConfig.provider}:${providerConfig.modelName || ''}:${providerConfig.apiKeyId || ''}`;
+    const model = await modelManager.getModel(
+      providerConfig.provider,
+      providerConfig.apiKeyId,
+      providerConfig.apiKeyRequesterId,
+      token
+    );
 
-    // Obtener el modelo
-    const model = modelManager.getModel(sessionData.modelName);
+    if (mode === 'rubric') {
+      const rubric = requestRubric || parseStoredRubric(leiaMeta?.rubric);
+      if (!rubric?.spec?.sections?.length) {
+        return res.status(400).send({ error: 'A valid structured rubric is required for rubric evaluation' });
+      }
+      const evaluationContext = {
+        ...(context || {}),
+        currentStage: {
+          outputs: {
+            ...(context?.currentStage?.outputs || {}),
+            ...(result !== undefined && context?.currentStage?.outputs?.submitedSolution === undefined
+              ? { submitedSolution: result }
+              : {}),
+          },
+        },
+      };
+      const evaluationResult = await withTrace('runner.evaluation.rubric', () => model.evaluateWithRubric({
+        rubric,
+        context: evaluationContext,
+        language: language || leiaMeta?.language || 'en',
+      }), { sessionId, suppressTracing: suppressTracing === true, hideChildInput: true, input: { type: 'rubric-evaluation', text: result } });
+      if (sessionData) await sessionService.clearNativeConversation(sessionId, sessionData.provider);
+      return res.status(200).send(evaluationResult);
+    }
 
-    // Evaluar la solución
-    const evaluationResult = await model.evaluateSolution({
+    // Evaluar la solución de forma clásica
+    const evaluationResult = await withTrace('runner.evaluation.classic', () => model.evaluateSolution({
       leiaMeta,
       result
-    });
+    }), { sessionId, suppressTracing: suppressTracing === true, hideChildInput: true, input: { type: 'classic-evaluation', text: result } });
 
-    res.status(200).send(evaluationResult);
+    if (sessionData) await sessionService.clearNativeConversation(sessionId, sessionData.provider);
+    res.status(200).send({
+      evaluationMode: 'classic',
+      ...evaluationResult,
+    });
   } catch (error) {
-    console.error(`Error evaluating solution for session ${req.body.sessionId}:`, error);
+    console.error(`Error evaluating solution for session ${req.body?.sessionId}:`, error);
     res.status(500).send({ error: 'Internal error evaluating solution' });
-  } finally {
-    if (conversationClereable) {
-      try {
-        await sessionService.clearConversation(req.body.sessionId);
-      } catch (cleanupError) {
-        console.error(`Error clearing conversation cache for session ${req.body.sessionId}:`, cleanupError);
-      }
-    }
   }
-}; 
+};

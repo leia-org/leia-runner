@@ -1,13 +1,21 @@
 import { describe, expect, beforeAll, afterAll, test } from 'vitest';
 import { z } from 'zod';
-
-require('dotenv').config();
-
-const structuredGenerationService = require('../services/structuredGenerationService');
+import 'dotenv/config';
+import structuredGenerationService from '../services/structuredGenerationService';
+import OpenAIResponsesProvider from '../models/providers/openai-responses';
+import GeminiProvider from '../models/providers/gemini-3.1-flash-lite-preview';
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite-preview';
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+// Set by CI on pull requests from forks, which get no secrets: a missing key
+// skips that provider's test instead of failing it.
+const PROVIDER_KEYS_OPTIONAL = process.env.PROVIDER_KEYS_OPTIONAL === 'true';
+
+const openaiResponsesProvider = new OpenAIResponsesProvider();
+const geminiProvider = new GeminiProvider();
 
 const MiniEvaluationSchema = z.object({
   score: z.number().min(0).max(10),
@@ -27,6 +35,41 @@ const MiniEvaluationResponseFormat = {
   },
   required: ['score', 'feedback', 'suggestions'],
 };
+
+async function assertSessionLifecycle(provider, { instructions, message }) {
+  const sessionData = await provider.createSession({ instructions });
+
+  expect(sessionData).toEqual({
+    providerState: {
+      systemInstruction: instructions,
+    },
+    threadId: '',
+  });
+
+  const response = await provider.sendMessage({
+    message,
+    sessionData,
+  });
+
+  expect(response).toEqual(
+    expect.objectContaining({
+      message: expect.any(String),
+      sessionData: expect.any(Object),
+    })
+  );
+  expect(response.message.trim()).toBeTruthy();
+  expect(response.sessionData).toEqual(
+    expect.objectContaining({
+      threadId: expect.any(String),
+      providerState: expect.any(Object),
+    })
+  );
+  expect(response.sessionData.providerState.systemInstruction).toBe(instructions);
+  // threadId is empty after createSession; after the first sendMessage it should be assigned
+  expect(response.sessionData.threadId).not.toBe('');
+
+  return response;
+}
 
 let originalProvider;
 
@@ -54,11 +97,17 @@ async function runWithSchemaRetry(action, { maxAttempts = 3 } = {}) {
   throw lastError;
 }
 
-//antes de todos los tests, guardamos el valor original de AI_PROVIDER para restaurarlo después
+// Before all tests, store the original AI_PROVIDER value to restore it later
 beforeAll(() => {
   originalProvider = process.env.AI_PROVIDER;
+  if (OPENAI_API_KEY) {
+    openaiResponsesProvider.setApiKey(OPENAI_API_KEY);
+  }
+  if (GEMINI_API_KEY) {
+    geminiProvider.setApiKey(GEMINI_API_KEY);
+  }
 });
-//después de todos los tests, restauramos el valor original de AI_PROVIDER para no afectar otras pruebas o el entorno
+// After all tests, restore the original AI_PROVIDER value to avoid affecting other tests or the environment
 afterAll(() => {
   if (typeof originalProvider === 'undefined') {
     delete process.env.AI_PROVIDER;
@@ -69,7 +118,35 @@ afterAll(() => {
 });
 
 describe('LLM integration tests', () => {
-  test('calls OpenAI structured endpoint successfully', { timeout: 120000 }, async () => {
+  test.skipIf(!GEMINI_API_KEY)('Gemini follows instructor opening despite conflicting persona pacing rules', { timeout: 120000 }, async () => {
+    // Synthetic role-play deliberately conflicts with the requested opening:
+    // a user-role startup can be interpreted as dialogue and answered instead.
+    const instructions = [
+      'Role-play Morgan, a busy restaurant owner speaking to an engineer gathering requirements for a reservation platform.',
+      'Diners reserve tables for a date, time, and party size. Staff confirm reservations. Stay in character as the business owner.',
+      'Be strict, pragmatic, concise, passive, and very busy. The participant must guide the interview.',
+      'Only respond to concrete questions. Never offer assistance or additional suggestions. Never end your responses with questions. Let the participant lead.',
+    ].join('\n\n');
+    const opening = 'Hello! What should I call you?';
+    const sessionData = await geminiProvider.createSession({ instructions });
+    const first = await geminiProvider.sendMessage({
+      message: `Start the conversation now. This is an internal startup instruction, not a student message. Your first message must follow these instructor instructions: ${opening}`,
+      sessionData,
+      opening: true,
+    });
+    expect(first.message).toBe(opening);
+    expect(first.sessionData.providerState).toMatchObject({
+      systemInstruction: instructions, firstAssistantMessage: opening, openingPending: true,
+    });
+    const next = await geminiProvider.sendMessage({
+      message: 'Repeat your first message verbatim.', sessionData: first.sessionData,
+    });
+    expect(next.message).toContain(opening);
+    expect(next.sessionData.providerState.openingPending).toBe(false);
+    expect(next.sessionData.threadId).toBeTruthy();
+  });
+
+  test.skipIf(PROVIDER_KEYS_OPTIONAL && !OPENAI_API_KEY)('calls OpenAI structured endpoint successfully', { timeout: 120000 }, async () => {
     process.env.AI_PROVIDER = 'openai';
 
     const result = await runWithSchemaRetry(async () =>
@@ -93,9 +170,14 @@ describe('LLM integration tests', () => {
     expect(result.score).toBeGreaterThanOrEqual(0);
     expect(result.score).toBeLessThanOrEqual(10);
     expect(result.suggestions.length).toBeGreaterThan(0);
+
+    await assertSessionLifecycle(openaiResponsesProvider, {
+      instructions: 'You are a concise assistant that answers briefly.',
+      message: 'Reply with a short confirmation that the session flow works.',
+    });
   });
 
-  test('calls Gemini structured endpoint successfully', { timeout: 120000 }, async () => {
+  test.skipIf(PROVIDER_KEYS_OPTIONAL && !GEMINI_API_KEY)('calls Gemini structured endpoint successfully', { timeout: 120000 }, async () => {
     process.env.AI_PROVIDER = 'gemini';
 
     const result = await runWithSchemaRetry(async () =>
@@ -120,5 +202,10 @@ describe('LLM integration tests', () => {
     expect(result.score).toBeGreaterThanOrEqual(0);
     expect(result.score).toBeLessThanOrEqual(10);
     expect(result.suggestions.length).toBeGreaterThan(0);
+
+    await assertSessionLifecycle(geminiProvider, {
+      instructions: 'You are a concise assistant that answers briefly.',
+      message: 'Reply with a short confirmation that the session flow works.',
+    });
   });
 });

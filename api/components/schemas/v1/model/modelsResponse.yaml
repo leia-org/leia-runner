@@ -1,0 +1,40 @@
+type: object
+properties:
+  models:
+    type: array
+    items:
+      type: string
+    example:
+      - alma
+      - gemini-3.1-flash-lite-preview
+      - openai-responses
+  default:
+    type: string
+    example: openai-responses
+  apiKeyProviders:
+    type: object
+    additionalProperties:
+      type: array
+      items:
+        type: string
+    example:
+      openai:
+        - gpt-5.4-mini
+      gemini:
+        - gemini-3.1-flash-lite-preview
+      alma:
+        - meta-llama/Llama-3.1-8B-Instruct
+  providerProviderModuleMap:
+    type: object
+    additionalProperties:
+      type: string
+    example:
+      openai: openai-responses
+      gemini: gemini-3.1-flash-lite-preview
+      alma: alma
+required:
+  - models
+  - default
+  - apiKeyProviders
+  - providerProviderModuleMap
+description: Available models grouped by provider.

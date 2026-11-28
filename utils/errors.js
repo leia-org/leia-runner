@@ -1,21 +1,6 @@
 const createError = require('http-errors');
 
 const baseModel = {
-  missingSessionId: () =>
-    createError(400, 'sessionId es requerido para enviar mensajes al proveedor'),
-
-  noTextContent: (providerName = 'provider') =>
-    createError(500, `${providerName} no devolvio contenido de texto`),
-
-  messageSendError: (originalError, providerName = 'provider') => {
-    console.error(`Error enviando mensaje a ${providerName}:`, originalError);
-    if (originalError && (originalError.status || originalError.statusCode)) {
-      return originalError;
-    }
-
-    return createError(500, `Error enviando mensaje a ${providerName}`);
-  },
-
   missingInstruction: () =>
     createError(500, 'systemInstruction ausente en providerState; posible sesion corrupta'),
 
@@ -29,9 +14,6 @@ const baseModel = {
 };
 
 const openAI = {
-  missingSessionId: () =>
-    createError(400, 'sessionId es requerido para usar el proveedor OpenAI'),
-
   noConversationId: () =>
     createError(500, 'OpenAI no devolvio un identificador de conversacion'),
 
@@ -61,8 +43,9 @@ const openAI = {
 };
 
 const gemini = {
-  missingSessionId: () =>
-    createError(400, 'sessionId es requerido para usar el proveedor Gemini'),
+
+  responseError: (message) =>
+    createError(500, message || 'Gemini devolvio un error al generar la respuesta'),
 
   noTextContent: () => createError(500, 'Gemini no devolvio contenido de texto'),
 
@@ -99,11 +82,33 @@ const ollama = {
   },
 };
 
+const alma = {
+  missingSessionId: () =>
+    createError(400, 'sessionId is required to use ALMA provider'),
+
+  noTextContent: () =>
+    createError(500, 'ALMA did not return text content'),
+
+  noEvaluationContent: () =>
+    createError(500, 'ALMA did not return evaluation content'),
+
+  messageSendError: (originalError) => {
+    console.error('Error sending message to ALMA:', originalError);
+    return createError(500, 'Error sending message to ALMA');
+  },
+
+  evaluationError: (originalError) => {
+    console.error('Error evaluating solution with ALMA:', originalError);
+    return createError(500, 'Error evaluating the solution with ALMA');
+  },
+};
+
 const Errors = {
   baseModel,
   openAI,
   gemini,
   ollama,
+  alma,
 };
 
 module.exports = Errors;

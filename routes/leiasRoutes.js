@@ -7,7 +7,17 @@ const cacheController = require('../controllers/cacheController');
 const transcriptionController = require('../controllers/transcriptionController');
 const problemGeneratorController = require('../controllers/problemGeneratorController');
 const behaviourGeneratorController = require('../controllers/behaviourGeneratorController');
+const problemChatController = require('../controllers/problemChatController');
+const supervisorController = require('../controllers/supervisorController');
+const imageGenerationController = require('../controllers/imageGenerationController');
+const multiLeiasController = require('../controllers/multiLeiasController');
+const conversationDynamicsController = require('../controllers/conversationDynamicsController');
+const traceRetentionController = require('../controllers/traceRetentionController');
+const multer = require('multer');
 const { bearerAuth } = require('../utils/auth');
+
+// In-memory PDF uploads for the problem-chat assistant (forwarded to OpenAI).
+const uploadPdf = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 // Aplicar middleware de autenticación a todas las rutas
 router.use(bearerAuth);
@@ -17,6 +27,15 @@ router.post('/leias', leiasController.createLeia);
 
 // Endpoint para enviar mensajes a LEIA
 router.post('/leias/:sessionId/messages', leiasController.sendLeiaMessage);
+router.delete('/leias/:sessionId/traces', traceRetentionController.removeSessionTraces);
+
+// Text-only MultiLEIA runtime. Each actor gets an isolated provider session;
+// the runtime traverses an implicit graph and returns the public messages
+// generated before control goes back to the participant.
+router.post('/multi-leias', multiLeiasController.createMultiLeia);
+router.get('/multi-leias/:sessionId', multiLeiasController.getMultiLeiaState);
+router.post('/multi-leias/:sessionId/messages', multiLeiasController.sendMultiLeiaMessage);
+router.post('/multi-leias/:sessionId/messages/stream', multiLeiasController.streamMultiLeiaMessage);
 
 // Endpoint para listar los modelos disponibles
 router.get('/models', modelsController.listModels);
@@ -33,5 +52,21 @@ router.post('/transcriptions/generate', transcriptionController.generateTranscri
 // Endpoint para generación de problemas con IA
 router.post('/problems/generate', problemGeneratorController.generateProblem);
 router.post('/behaviours/generate', behaviourGeneratorController.generateBehaviour);
+
+// Endpoints para generación de imagenes con IA
+router.post('/avatars/personas/generate', imageGenerationController.generatePersonaAvatar);
+router.post('/avatars/problems/generate', imageGenerationController.generateProblemAvatar);
+router.post('/avatars/leias/generate', imageGenerationController.generateLeiaAvatar);
+router.post('/infographics/generate', imageGenerationController.generateInfographic);
+
+// Problem-chat assistant (design-time): attach PDFs, chat; tools are executed in the FE.
+router.post('/problems/chat/session', problemChatController.openProblemChat);
+router.post('/problems/chat/:chatId/files', uploadPdf.single('file'), problemChatController.uploadProblemChatFile);
+router.post('/problems/chat/:chatId/messages', problemChatController.sendProblemChatMessage);
+
+// Background supervisor (stateless): observe an activity transcript window and
+// return flags (+ optional student nudge). Called fire-and-forget by the workbench.
+router.post('/supervisor', supervisorController.observe);
+router.post('/conversation-dynamics/evaluate', conversationDynamicsController.evaluate);
 
 module.exports = router;

@@ -8,8 +8,8 @@ class ModelSyncService {
   }
 
   /**
-   * Sincroniza los modelos disponibles en Redis
-   * @param {boolean} force - Si es true, fuerza la sincronización incluso si ya está en proceso
+   * Synchronizes available models in Redis
+   * @param {boolean} force - If true, forces synchronization even if already in progress
    * @returns {Promise<void>}
    */
   async syncModels(force = false) {
@@ -22,17 +22,29 @@ class ModelSyncService {
       this.isSyncing = true;
       const models = modelManager.getAvailableModels();
       const defaultModel = modelManager.getDefaultModel();
+      const apiKeyProvidersMap = modelManager.getApiKeyProvidersByModel();
+      const providerProviderModuleMap = modelManager.getProviderProviderModuleMap();
 
-      // Guardar los modelos en Redis
+      // Save models in Redis
       await redisClient.set(
         `${this.keyPrefix}available`,
         JSON.stringify(models)
       );
 
-      // Guardar el modelo por defecto
+      // Save default model
       await redisClient.set(
         `${this.keyPrefix}default`,
         defaultModel
+      );
+
+      await redisClient.set(
+        `${this.keyPrefix}apiKeyProviders`,
+        JSON.stringify(apiKeyProvidersMap)
+      );
+
+      await redisClient.set(
+        `${this.keyPrefix}providerProviderModuleMap`,
+        JSON.stringify(providerProviderModuleMap)
       );
 
       console.log('Models synchronized successfully in Redis');
@@ -45,19 +57,23 @@ class ModelSyncService {
   }
 
   /**
-   * Obtiene los modelos disponibles desde Redis
-   * @returns {Promise<Object>} - Objeto con los modelos disponibles y el modelo por defecto
+   * Gets available models from Redis
+   * @returns {Promise<Object>} - Object with available models and default model
    */
   async getModelsFromRedis() {
     try {
-      const [availableModels, defaultModel] = await Promise.all([
+      const [availableModels, defaultModel, apiKeyProviders, providerProviderModuleMap] = await Promise.all([
         redisClient.get(`${this.keyPrefix}available`),
-        redisClient.get(`${this.keyPrefix}default`)
+        redisClient.get(`${this.keyPrefix}default`),
+        redisClient.get(`${this.keyPrefix}apiKeyProviders`),
+        redisClient.get(`${this.keyPrefix}providerProviderModuleMap`)
       ]);
 
       return {
         models: JSON.parse(availableModels || '[]'),
-        default: defaultModel || modelManager.getDefaultModel()
+        default: defaultModel || modelManager.getDefaultModel(),
+        apiKeyProviders: JSON.parse(apiKeyProviders || '{}'),
+        providerProviderModuleMap: JSON.parse(providerProviderModuleMap || '{}')
       };
     } catch (error) {
       console.error('Error getting models from Redis:', error);
@@ -66,7 +82,7 @@ class ModelSyncService {
   }
 
   /**
-   * Fuerza la sincronización de modelos
+   * Forces model synchronization
    * @returns {Promise<void>}
    */
   async forceSync() {
@@ -75,4 +91,4 @@ class ModelSyncService {
 }
 
 const modelSyncService = new ModelSyncService();
-module.exports = modelSyncService; 
+module.exports = modelSyncService;
