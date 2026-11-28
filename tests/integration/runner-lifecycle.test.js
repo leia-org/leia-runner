@@ -1,12 +1,13 @@
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 import { createRequire } from 'node:module';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import express from 'express';
 
 const require = createRequire(import.meta.url);
 let redisClient, manager, service, http, peers;
 const sessionIds = [];
 const modelRequests = [], keyRequests = [];
+const fixtureTraceRows = [];
 let failProvider = false;
 const listen = async (app) => {
   const server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
@@ -37,6 +38,15 @@ beforeAll(async () => {
     modelRequests.push(req.body);
     if (failProvider) return res.status(503).json({ error: 'Provider unavailable' });
     res.json({ message: { role: 'assistant', content: `Answer: ${req.body.messages.at(-1).content}` }, done: true });
+  });
+  peer.get('/api/public/traces', (req, res) => res.json({ data: fixtureTraceRows.filter((trace) =>
+    trace.sessionId === req.query.sessionId && trace.environment === req.query.environment) }));
+  peer.delete('/api/public/traces', (req, res) => {
+    for (const traceId of req.body.traceIds) {
+      const index = fixtureTraceRows.findIndex((row) => row.id === traceId);
+      if (index !== -1) fixtureTraceRows.splice(index, 1);
+    }
+    res.json({ message: 'Deleted fixture traces' });
   });
   peers = await listen(peer); vi.stubEnv('VITE_AUTH_SERVICE_BACKEND', peers.url);
   manager = require('../../models/modelManager'); await manager.initialize();
@@ -92,4 +102,28 @@ test('provider errors do not fabricate an assistant response and another session
   await service.deleteSession(id);
   expect((await request(`/leias/${id}/messages`, { message: 'After deletion' })).status).toBe(404);
   expect(await redisClient.exists(`leia:meta:${id}`)).toBe(0);
+});
+
+test('the authenticated trace deletion route leaves every other session untouched', async () => {
+  vi.stubEnv('LANGFUSE_BASE_URL', peers.url);
+  vi.stubEnv('LANGFUSE_PUBLIC_KEY', 'fixture');
+  vi.stubEnv('LANGFUSE_SECRET_KEY', 'fixture-secret');
+  vi.stubEnv('LANGFUSE_TRACING_ENVIRONMENT', 'integration-test');
+  const wbSessionId = 'f609194a8716511bb0c21ad0';
+  const hashed = createHmac('sha256', 'fixture-secret').update('integration-test').update('\0')
+    .update(wbSessionId).digest('hex').slice(0, 32);
+  fixtureTraceRows.push(
+    { id: 'to-delete', sessionId: hashed, environment: 'integration-test' },
+    { id: 'other-environment', sessionId: hashed, environment: 'production' },
+    { id: 'other-session', sessionId: 'another-selected-session', environment: 'integration-test' },
+  );
+  const url = `${http.url}/api/v1/leias/${wbSessionId}/traces?from=2026-11-25T08%3A00%3A00.000Z`;
+  expect((await fetch(url, { method: 'DELETE' })).status).toBe(401);
+  expect(fixtureTraceRows).toHaveLength(3);
+  const remove = () => fetch(url, { method: 'DELETE', headers: { Authorization: 'Bearer integration-runner' } });
+  const queued = await remove();
+  expect(queued.status).toBe(202);
+  expect(await queued.json()).toEqual({ complete: false });
+  expect(await (await remove()).json()).toEqual({ complete: true });
+  expect(fixtureTraceRows.map(({ id }) => id)).toEqual(['other-environment', 'other-session']);
 });

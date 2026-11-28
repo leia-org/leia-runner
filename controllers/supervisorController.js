@@ -1,4 +1,5 @@
 const supervisorService = require('../services/supervisorService');
+const { withTrace } = require('../services/langfuseTracing');
 
 /**
  * Observe an activity transcript window and return structured flags (+ optional
@@ -14,16 +15,22 @@ const supervisorService = require('../services/supervisorService');
  */
 const observe = async (req, res) => {
   try {
-    const { transcript, existingFlags, runnerConfiguration, supervisorConfig } = req.body;
+    const { transcript, existingFlags, runnerConfiguration, supervisorConfig, sessionId, suppressTracing } = req.body;
     if (!Array.isArray(transcript) || transcript.length === 0) {
       return res.status(400).json({ error: 'A non-empty transcript is required' });
     }
-    const result = await supervisorService.observe({
+    const run = () => supervisorService.observe({
       runnerConfiguration: runnerConfiguration || {},
       transcript,
       existingFlags: Array.isArray(existingFlags) ? existingFlags : [],
       config: supervisorConfig || {},
     });
+    const result = sessionId
+      ? await withTrace('runner.supervisor', run, {
+          sessionId, suppressTracing: suppressTracing === true, hideChildInput: true,
+          input: { type: 'supervisor' },
+        })
+      : await run();
     res.status(200).json(result);
   } catch (error) {
     console.error('Error in supervisor observation:', error);

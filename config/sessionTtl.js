@@ -20,7 +20,17 @@ function getSessionTtlSeconds() {
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : DEFAULT_SESSION_TTL_SECONDS;
 }
 
+function getConversationTtlSeconds() {
+  const sessionTtl = getSessionTtlSeconds();
+  const configured = Number(process.env.CONVERSATION_HISTORY_TTL);
+  if (!Number.isSafeInteger(configured) || configured <= 0) {
+    return sessionTtl;
+  }
+  return sessionTtl > 0 ? Math.min(sessionTtl, configured) : configured;
+}
+
 module.exports = {
   DEFAULT_SESSION_TTL_SECONDS,
   getSessionTtlSeconds,
+  getConversationTtlSeconds,
 };

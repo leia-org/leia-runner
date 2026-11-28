@@ -75,6 +75,16 @@ runtimes expire from Redis `SESSION_TTL_SECONDS` after their last activity
 (default `86400`, 24 h). Every message restarts the countdown. `0` disables
 expiration.
 
+Set `CONVERSATION_HISTORY_TTL` to a positive number of seconds to expire the
+conversation history sooner. Choose a value that covers idle time for ALMA
+and Ollama, which use Redis history to continue conversations.
+
+OpenAI and Gemini use their provider-side state to continue conversations.
+An optional Redis copy of participant dialogue can be enabled with
+`CONVERSATION_CACHE_ENABLED=true`. Override it for either provider with
+`OPENAI_CONVERSATION_CACHE_ENABLED` or `GEMINI_CONVERSATION_CACHE_ENABLED`.
+Redis copies are disabled by default and cleared after a successful evaluation.
+
 ## API
 
 The API provides the following endpoints:

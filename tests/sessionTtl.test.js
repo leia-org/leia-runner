@@ -99,6 +99,39 @@ describe('sessionService', () => {
 
     expect(redisClient.expire).not.toHaveBeenCalled();
   });
+
+  test('refreshes history with its own shorter TTL, bounded by the session TTL', async () => {
+    vi.stubEnv('CONVERSATION_HISTORY_TTL', '120');
+    await sessionService.touchSession('s1');
+    expect(redisClient.expire).toHaveBeenCalledWith('session:s1', TTL);
+    expect(redisClient.expire).toHaveBeenCalledWith('conversation:s1', 120);
+
+    vi.stubEnv('CONVERSATION_HISTORY_TTL', '1200');
+    await sessionService.touchSession('s1');
+    expect(redisClient.expire).toHaveBeenLastCalledWith('conversation:s1', TTL);
+  });
+
+  test('only mirrors public turns when enabled for the native provider', async () => {
+    vi.stubEnv('CONVERSATION_CACHE_ENABLED', 'true');
+    vi.stubEnv('OPENAI_CONVERSATION_CACHE_ENABLED', 'false');
+    vi.spyOn(sessionService, 'getSession').mockResolvedValue({ provider: 'openai' });
+    vi.spyOn(sessionService, 'getLeiaMeta').mockResolvedValue(null);
+    vi.spyOn(modelManager, 'getModel').mockResolvedValue({
+      sendMessage: vi.fn().mockResolvedValue({ message: 'hi' }),
+    });
+    const appendTurn = vi.spyOn(ConversationStore.prototype, 'appendTurn').mockResolvedValue();
+
+    await sessionService.sendMessage('s1', 'hello');
+    expect(appendTurn).not.toHaveBeenCalled();
+
+    vi.stubEnv('OPENAI_CONVERSATION_CACHE_ENABLED', 'true');
+    await sessionService.sendMessage('s1', 'private', { traceInternal: true });
+    expect(appendTurn).not.toHaveBeenCalled();
+
+    await sessionService.sendMessage('s1', 'hello', { context: 'hidden context' });
+    expect(appendTurn).toHaveBeenCalledOnce();
+    expect(appendTurn).toHaveBeenCalledWith('s1', 'hello', 'hi');
+  });
 });
 
 describe('ConversationStore', () => {

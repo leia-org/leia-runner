@@ -87,6 +87,31 @@ describe('rubric evaluation utilities', () => {
     expect(resolved).toContain('BEGIN PARTICIPANT CONVERSATION DATA');
   });
 
+  test('resolves previousStage.leia.problem.* placeholders as plain instructor text', () => {
+    const { resolved, referenced } = resolveRubricEvaluationPrompt(
+      'Original statement: {{previousStage.leia.problem.description}}\nReference: {{previousStage.leia.problem.solution}}\nProcess: {{previousStage.leia.problem.process}}\nOptional: {{previousStage.leia.problem.details}}',
+      {
+        previousStage: {
+          leia: {
+            problem: {
+              description: 'Build an invoice tracker',
+              solution: 'Invoice -> LineItem',
+              process: ['requirements-elicitation'],
+            },
+          },
+        },
+      },
+    );
+
+    expect(referenced.has('previousStage.leia.problem.description')).toBe(true);
+    expect(referenced.has('previousStage.leia.problem.solution')).toBe(true);
+    expect(referenced.has('previousStage.leia.problem.process')).toBe(true);
+    expect(referenced.has('previousStage.leia.problem.details')).toBe(true);
+    expect(resolved).toBe(
+      'Original statement: Build an invoice tracker\nReference: Invoice -> LineItem\nProcess: requirements-elicitation\nOptional: ',
+    );
+  });
+
   test('builds prompt with language and fallback unreferenced submitted solution', () => {
     const prompt = buildRubricEvaluationPrompt({
       rubric: sampleRubric,

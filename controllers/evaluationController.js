@@ -22,6 +22,7 @@ module.exports.evaluateSolution = async function evaluateSolution(req, res) {
       context,
       language,
       runnerConfiguration,
+      suppressTracing,
     } = req.body || {};
 
     if (!sessionId) {
@@ -75,7 +76,8 @@ module.exports.evaluateSolution = async function evaluateSolution(req, res) {
         rubric,
         context: evaluationContext,
         language: language || leiaMeta?.language || 'en',
-      }), { sessionId, hideChildInput: true, input: { type: 'rubric-evaluation', text: result } });
+      }), { sessionId, suppressTracing: suppressTracing === true, hideChildInput: true, input: { type: 'rubric-evaluation', text: result } });
+      if (sessionData) await sessionService.clearNativeConversation(sessionId, sessionData.provider);
       return res.status(200).send(evaluationResult);
     }
 
@@ -83,8 +85,9 @@ module.exports.evaluateSolution = async function evaluateSolution(req, res) {
     const evaluationResult = await withTrace('runner.evaluation.classic', () => model.evaluateSolution({
       leiaMeta,
       result
-    }), { sessionId, hideChildInput: true, input: { type: 'classic-evaluation', text: result } });
+    }), { sessionId, suppressTracing: suppressTracing === true, hideChildInput: true, input: { type: 'classic-evaluation', text: result } });
 
+    if (sessionData) await sessionService.clearNativeConversation(sessionId, sessionData.provider);
     res.status(200).send({
       evaluationMode: 'classic',
       ...evaluationResult,

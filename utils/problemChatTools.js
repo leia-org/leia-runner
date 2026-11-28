@@ -1,4 +1,5 @@
 const UNSUPPORTED_STRICT_SCHEMA_KEYWORDS = new Set(['$id', '$schema', 'uniqueItems']);
+const DRAFT_EDIT_TOOLS = new Set(['edit_problem', 'edit_behaviour', 'edit_persona']);
 
 function toOpenAiStrictSchema(value) {
   if (Array.isArray(value)) return value.map(toOpenAiStrictSchema);
@@ -28,13 +29,15 @@ function normalizeTools(tools) {
   const out = [];
   for (const tool of tools) {
     if (!tool || typeof tool.name !== 'string') continue;
+    // Draft edits carry only the fields the instructor asked to change.
+    const strict = DRAFT_EDIT_TOOLS.has(tool.name) ? false : tool.strict === true || undefined;
     out.push({
       type: 'function',
       name: tool.name,
       description: typeof tool.description === 'string' ? tool.description : '',
-      ...(tool.strict === true ? { strict: true } : {}),
+      ...(typeof strict === 'boolean' ? { strict } : {}),
       parameters: tool.parameters && typeof tool.parameters === 'object'
-        ? (tool.strict === true ? toOpenAiStrictSchema(tool.parameters) : tool.parameters)
+        ? (strict === true ? toOpenAiStrictSchema(tool.parameters) : tool.parameters)
         : { type: 'object', properties: {} },
     });
   }

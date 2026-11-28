@@ -39,14 +39,40 @@ function extractResponseText(response) {
 
 const STORE_PREFIX = 'problemchat:';
 const TTL_SECONDS = 6 * 60 * 60; // 6h — design-time assistant, ephemeral.
+// Compare the snapshot before committing an update made during a provider call.
+const UPDATE_SESSION = `
+  if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+  redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+  return 1
+`;
+
+function chatError(message, statusCode) {
+  return Object.assign(new Error(message), { statusCode });
+}
+
+function toolOutput(callId, output) {
+  return {
+    type: 'function_call_output',
+    call_id: callId,
+    output: typeof output === 'string' ? output : JSON.stringify(output ?? null),
+  };
+}
 
 // Design-time assistant. Tool availability is role- and feature-dependent:
 // basic users can select a Behaviour but cannot author the base resource, and
 // rubrics are optional — included only when the instructor adds one.
-const CORE_PROMPT_INTRO_WITHOUT_RUBRIC = [
-  'You help an instructor design a whole LEIA for an educational platform where students practice by interacting with an AI that simulates a real-world scenario. A LEIA is made of three resources: a PROBLEM (the scenario/task the student works on), a BEHAVIOUR (the role the AI plays opposite the student) and a PERSONA (the character the AI embodies).',
+const RESOURCE_SPECS = [
   'A LEIA problem spec has: description, personaBackground, details, solution, initialSolution, solutionFormat (one of: text, mermaid, yaml, markdown, html, json, xml), evaluationPrompt, process, the advanced composition fields extends/overrides/constrainedTo, and optionally widgets (interactive tools the activity uses).',
   'A behaviour spec has: description (how the AI acts, what it knows/withholds), role, process[], tooltip. A persona spec has: fullName, firstName, description, personality, and pronouns (subjectPronoum/objectPronoum/possesivePronoum/possesiveAdjective).',
+];
+
+const RESOURCE_CONTEXT = [
+  'You help an instructor design a whole LEIA for an educational platform where students practice by interacting with an AI that simulates a real-world scenario. A LEIA is made of three resources: a PROBLEM (the scenario/task the student works on), a BEHAVIOUR (the role the AI plays opposite the student) and a PERSONA (the character the AI embodies).',
+  ...RESOURCE_SPECS,
+];
+
+const CORE_PROMPT_INTRO_WITHOUT_RUBRIC = [
+  ...RESOURCE_CONTEXT,
   'Tools, provided by the editor (call get_current_* before modifying an existing resource):',
   '- get_current_problem() / apply_problem(spec): read / write the problem.',
   '- get_current_behaviour(): read the selected behaviour. apply_behaviour is available only when the current user may author Behaviour resources.',
@@ -57,11 +83,14 @@ const CORE_PROMPT_INTRO_WITHOUT_RUBRIC = [
   'Every apply_* takes a `name` (short kebab-case) — ALWAYS set it so the instructor does not have to rename the resource afterwards.',
 ];
 
-const CORE_PROMPT_INTRO_WITH_RUBRIC = [
+const RESOURCE_CONTEXT_WITH_RUBRIC = [
   'You help an instructor design a whole LEIA for an educational platform where students practice by interacting with an AI that simulates a real-world scenario. A LEIA is made of four resources: a PROBLEM (the scenario/task the student works on), a BEHAVIOUR (the role the AI plays opposite the student), a PERSONA (the character the AI embodies), and a RUBRIC (the criteria used to evaluate the student\'s work).',
-  'A LEIA problem spec has: description, personaBackground, details, solution, initialSolution, solutionFormat (one of: text, mermaid, yaml, markdown, html, json, xml), evaluationPrompt, process, the advanced composition fields extends/overrides/constrainedTo, and optionally widgets (interactive tools the activity uses).',
-  'A behaviour spec has: description (how the AI acts, what it knows/withholds), role, process[], tooltip. A persona spec has: fullName, firstName, description, personality, and pronouns (subjectPronoum/objectPronoum/possesivePronoum/possesiveAdjective).',
-  'A rubric resource is structured JSON with apiVersion "v1", metadata.name, and spec ({ evaluationPrompt, sections }). Every section has title, numeric weight, ordered levels, and criteria. Every criterion has a name and one descriptor per level ({level, description}). Section weights must total 100. Levels must be ordered from worst to best. spec.evaluationPrompt is optional instructions explaining how to apply the rubric and may use placeholders like {{currentStage.outputs.conversation}}, {{currentStage.outputs.submitedSolution}}, {{previousStage.outputs.conversation}}, {{previousStage.outputs.submitedSolution}}, {{problem.*}}, {{persona.*}} and {{behaviour.*}}. The rubric assesses whether the student can explain, justify and apply the concepts, decisions and trade-offs behind their solution, not only whether the final output looks correct.',
+  ...RESOURCE_SPECS,
+  'A rubric resource is structured JSON with apiVersion "v1", metadata.name, and spec ({ evaluationPrompt, sections }). Every section has title, numeric weight, ordered levels, and criteria. Every criterion has a name and one descriptor per level ({level, description}). Section weights must total 100. Levels must be ordered from worst to best. spec.evaluationPrompt is optional instructions explaining how to apply the rubric and may use placeholders like {{currentStage.outputs.conversation}}, {{currentStage.outputs.submitedSolution}}, {{previousStage.outputs.conversation}}, {{previousStage.outputs.submitedSolution}}, {{previousStage.leia.problem.*}}, {{problem.*}}, {{persona.*}} and {{behaviour.*}}. The rubric assesses whether the student can explain, justify and apply the concepts, decisions and trade-offs behind their solution, not only whether the final output looks correct.',
+];
+
+const CORE_PROMPT_INTRO_WITH_RUBRIC = [
+  ...RESOURCE_CONTEXT_WITH_RUBRIC,
   'Tools, provided by the editor (call get_current_* before modifying an existing resource):',
   '- get_current_problem() / apply_problem(spec): read / write the problem.',
   '- get_current_behaviour(): read the selected behaviour. apply_behaviour is available only when the current user may author Behaviour resources.',
@@ -97,14 +126,42 @@ const SHARED_WORKFLOW_PROMPT = [
   'Always respond in the same language as the user or the attached document.',
 ];
 
+const REVIEW_SYSTEM_PROMPT = [
+  'Designer reviews draft proposals. apply_* proposes creating or replacing a component, edit_* proposes editing selected fields, and use_* proposes reusing a library resource. A tool result of proposed refers to a working copy. The instructor must approve the displayed proposal in Designer before any change reaches the draft.',
+  'Scope each proposal to what the instructor asked for. If the request targets one component, keep the other selections and title. Use set_leia_name for a new untitled LEIA or an explicit rename. Ask a focused question if the requested change or target is unclear. Answer read-only questions without proposing changes.',
+  'Read get_current_problem, get_current_behaviour, or get_current_persona before editing the selected resource. Use edit_* with only the requested fields. To add a Behaviour guardrail or other instruction, use edit_behaviour with appendInstructions and empty changes. Preserve earlier instructions and every existing template reference.',
+  'For new components, check list_problems, list_behaviours, or list_personas and wait for the result before calling apply_*. Reuse a materially suitable resource with use_* and its exact id. Inspect candidate Behaviours with get_behaviour to check for hardcoded scenario details. Before changing the Problem, inspect the current Behaviour and keep it if its instructions still apply to the new scenario.',
+  'The selected Behaviour must match the final Problem process. If a requested Problem change requires replacing or editing the Behaviour, include that change in the same proposal. If there is no valid choice, ask the instructor how to proceed. Read tool results and correct rejected commands before finishing.',
+  `When creating a Behaviour, use dynamic references instead of hardcoded case data. Include ${CORE_PLACEHOLDERS.join(', ')}. Fill in a short kebab-case name when creating resources.`,
+  'Use Problem extensions, overrides, constraints, and widgets only when the requested activity needs them. Keep scenario, details, background and expected solution consistent. Read attached PDFs when the instructor asks to use them.',
+  'Summarise proposals without saying they have been applied. Always respond in the same language as the instructor or the attached document.',
+];
+
 function buildSystemPrompt(tools) {
   const toolNames = new Set(
     (Array.isArray(tools) ? tools : [])
       .map((tool) => tool?.name)
       .filter((name) => typeof name === 'string'),
   );
-  const canAuthorBehaviour = toolNames.has('apply_behaviour');
   const canAuthorRubric = toolNames.has('apply_rubric');
+  if (toolNames.has('edit_problem')) {
+    const rule = toolNames.has('edit_behaviour')
+      ? 'You can propose a new Behaviour with apply_behaviour or edit the selected one with edit_behaviour.'
+      : 'You cannot author or edit the base Behaviour. Reuse a suitable saved Behaviour. If none fits, explain that an advanced user or administrator can create one.';
+    const rubricRules = canAuthorRubric
+      ? [
+          'Call get_current_rubric before proposing a complete structured rubric with apply_rubric. When building a complete activity or materially changing its Problem, align the rubric with the task and learning objectives. A rubric proposal also requires instructor approval.',
+          'Use {{rubric.criteria}}, {{rubric.markdown}}, or {{rubric.evaluationPrompt}} in a Behaviour when it should probe rubric criteria.',
+        ]
+      : [];
+    return [
+      ...(canAuthorRubric ? RESOURCE_CONTEXT_WITH_RUBRIC : RESOURCE_CONTEXT),
+      ...REVIEW_SYSTEM_PROMPT,
+      rule,
+      ...rubricRules,
+    ].join('\n');
+  }
+  const canAuthorBehaviour = toolNames.has('apply_behaviour');
   const behaviourRule = canAuthorBehaviour
     ? '- You may call apply_behaviour only after list_behaviours proves there is no suitable existing Behaviour. Its process must exactly match the final Problem process.'
     : '- You cannot author or edit the base Behaviour resource. Never request apply_behaviour. Select an existing Behaviour with use_behaviour only if its role is suitable and its process exactly matches the Problem. If the list contains no compatible Behaviour, do not select an approximate one and do not keep trying other tools: leave Behaviour unselected and immediately explain that an advanced user or administrator must create it. You may still use extends, overrides or constrainedTo inside the Problem to customize a compatible selected Behaviour for this activity.';
@@ -128,17 +185,23 @@ class ProblemChatService {
     return `${STORE_PREFIX}${chatId}`;
   }
 
-  async _get(chatId) {
+  async _readSession(chatId) {
     const raw = await redisClient.get(this._key(chatId));
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) throw chatError('Problem-chat session not found', 404);
+    return { raw, session: JSON.parse(raw) };
   }
 
-  async _set(chatId, data) {
-    await redisClient.set(this._key(chatId), JSON.stringify(data), { EX: TTL_SECONDS });
+  async _saveSession(chatId, raw, session) {
+    const saved = await redisClient.eval(UPDATE_SESSION, {
+      keys: [this._key(chatId)],
+      arguments: [raw, JSON.stringify(session), String(TTL_SECONDS)],
+    });
+    if (!saved) throw chatError('The problem-chat session changed. Send your message again.', 409);
   }
 
   async openSession(chatId, runnerConfiguration = {}) {
-    await this._set(chatId, { runnerConfiguration, fileIds: [], responseId: null });
+    const session = { runnerConfiguration, fileIds: [], responseId: null, pendingToolCallIds: [] };
+    await redisClient.set(this._key(chatId), JSON.stringify(session), { EX: TTL_SECONDS });
     return { chatId };
   }
 
@@ -151,27 +214,17 @@ class ProblemChatService {
   }
 
   async uploadFile(chatId, buffer, filename) {
-    const session = await this._get(chatId);
-    if (!session) {
-      const error = new Error('Problem-chat session not found');
-      error.statusCode = 404;
-      throw error;
-    }
+    const { raw, session } = await this._readSession(chatId);
     const client = await this._client(session.runnerConfiguration);
     const file = await toFile(buffer, filename || 'document.pdf', { type: 'application/pdf' });
     const uploaded = await client.files.create({ file, purpose: 'user_data' });
     session.fileIds.push(uploaded.id);
-    await this._set(chatId, session);
+    await this._saveSession(chatId, raw, session);
     return { fileId: uploaded.id, filename: filename || 'document.pdf', bytes: buffer.length };
   }
 
   async sendMessage(chatId, { message, tools, toolResults, fileIds }) {
-    const session = await this._get(chatId);
-    if (!session) {
-      const error = new Error('Problem-chat session not found');
-      error.statusCode = 404;
-      throw error;
-    }
+    const { raw, session } = await this._readSession(chatId);
 
     // Merge any file ids the client reports (robust against a session being
     // re-opened between upload and message). Track which ones we've already
@@ -186,15 +239,19 @@ class ProblemChatService {
     const client = await this._client(session.runnerConfiguration);
     const model = session.runnerConfiguration?.modelName || process.env.OPENAI_MODEL || 'gpt-5.4-mini';
     const normalizedTools = normalizeTools(tools);
+    // Sessions created before pending calls were tracked have a stored response.
+    const pendingCallIds = session.pendingToolCallIds ?? (session.responseId
+      ? extractToolCalls(await client.responses.retrieve(session.responseId)).map(({ callId }) => callId)
+      : []);
 
     let input;
     const hasToolResults = Array.isArray(toolResults) && toolResults.length > 0;
     if (hasToolResults) {
-      input = toolResults.map((r) => ({
-        type: 'function_call_output',
-        call_id: r.callId,
-        output: typeof r.output === 'string' ? r.output : JSON.stringify(r.output ?? null),
-      }));
+      const resultIds = new Set(toolResults.map((result) => result?.callId));
+      if (toolResults.length !== pendingCallIds.length || !pendingCallIds.every((id) => resultIds.has(id))) {
+        throw chatError('Tool results do not match the pending calls. Send your message again.', 409);
+      }
+      input = toolResults.map(({ callId, output }) => toolOutput(callId, output));
     } else {
       const content = [];
       // Attach any uploaded PDFs not yet sent in this conversation (each once).
@@ -204,7 +261,12 @@ class ProblemChatService {
         content.push({ type: 'input_file', file_id: fileId });
       }
       content.push({ type: 'input_text', text: message || '' });
-      input = [{ role: 'user', content }];
+      // A fresh message supersedes tool calls left open by an interrupted turn.
+      input = pendingCallIds.map((id) => toolOutput(id, {
+        status: 'cancelled',
+        error: 'The previous turn was interrupted by a new user message.',
+      }));
+      input.push({ role: 'user', content });
       session.sentFileIds = [...session.sentFileIds, ...unsent];
     }
 
@@ -223,21 +285,23 @@ class ProblemChatService {
     const response = await withGeneration('runner.designer.chat', 'openai', model, () => client.responses.create(payload), {
       sessionId: chatId,
       input: {
-        type: toolResults?.length ? 'tool-continuation' : 'message',
+        type: hasToolResults ? 'tool-continuation' : 'message',
         text: message,
-        attachments: input[0]?.content?.filter((item) => item.type === 'input_file').length ?? 0,
+        attachments: input.at(-1)?.content?.filter((item) => item.type === 'input_file').length ?? 0,
         tools: normalizedTools?.length ?? 0,
-        toolResults: Array.isArray(toolResults) ? toolResults.length : 0,
+        toolResults: hasToolResults ? toolResults.length : 0,
+        ...(!hasToolResults && pendingCallIds.length > 0 && { cancelledCalls: pendingCallIds.length }),
       },
     });
     if (response?.error) {
       throw new Error(response.error.message || 'OpenAI response error');
     }
 
-    session.responseId = response.id || session.responseId;
-    await this._set(chatId, session);
-
     const toolCalls = extractToolCalls(response);
+    session.responseId = response.id || session.responseId;
+    session.pendingToolCallIds = toolCalls.map(({ callId }) => callId);
+    await this._saveSession(chatId, raw, session);
+
     if (toolCalls.length > 0) {
       return { toolCalls, responseId: response.id };
     }

@@ -1,5 +1,5 @@
 const { redisClient } = require('../config/redis');
-const { getSessionTtlSeconds } = require('../config/sessionTtl');
+const { getConversationTtlSeconds } = require('../config/sessionTtl');
 
 const CONVERSATION_KEY_PREFIX = 'conversation:';
 
@@ -193,6 +193,22 @@ class ConversationStore {
     await this.refreshTtl(sessionId);
   }
 
+  async appendTurn(sessionId, userText, assistantText) {
+    const messages = [
+      this.normalizeMessage('user', userText),
+      this.normalizeMessage('assistant', assistantText),
+    ].filter(Boolean);
+    if (messages.length === 0) return;
+
+    const key = this.getConversationKey(sessionId);
+    const transaction = redisClient.multi()
+      .rPush(key, messages.map((message) => JSON.stringify(message)))
+      .lTrim(key, -this.maxMessages, -1);
+    const ttl = getConversationTtlSeconds();
+    if (ttl > 0) transaction.expire(key, ttl);
+    await transaction.exec();
+  }
+
   /**
    * Restarts the expiration of the conversation history, so it lives as long
    * as the session it belongs to (see config/sessionTtl.js)
@@ -200,7 +216,7 @@ class ConversationStore {
    * @returns {Promise<void>}
    */
   async refreshTtl(sessionId) {
-    const ttlSeconds = getSessionTtlSeconds();
+    const ttlSeconds = getConversationTtlSeconds();
 
     if (ttlSeconds > 0) {
       await redisClient.expire(this.getConversationKey(sessionId), ttlSeconds);
